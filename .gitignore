@@ -1,0 +1,11 @@
+# Personal notes / working docs — never pushed
+MY_DOCS/
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
