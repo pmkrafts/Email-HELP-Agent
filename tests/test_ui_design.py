@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ui"))
 
-from design import COLORS, FONT_STACK, RADII, REVIEW_DOT, build_css, chip, dot  # noqa: E402
+from design import COLORS, DARK, FONT_STACK, RADII, REVIEW_DOT, build_css, chip, dot  # noqa: E402
 
 
 class TokenTests(unittest.TestCase):
@@ -94,11 +94,42 @@ class ThemeConfigTests(unittest.TestCase):
         self.assertTrue(config_path.exists(), "Streamlit theme config is missing")
         with config_path.open("rb") as fh:
             config = tomllib.load(fh)
-        theme = config["theme"]
-        self.assertEqual(theme["primaryColor"].lower(), COLORS["primary"])
-        self.assertEqual(theme["backgroundColor"].lower(), COLORS["canvas_soft"])
-        self.assertEqual(theme["secondaryBackgroundColor"].lower(), COLORS["canvas"])
-        self.assertEqual(theme["textColor"].lower(), COLORS["ink_secondary"])
+        light, dark = config["theme"]["light"], config["theme"]["dark"]
+        self.assertEqual(light["primaryColor"].lower(), COLORS["primary"])
+        self.assertEqual(light["backgroundColor"].lower(), COLORS["canvas_soft"])
+        self.assertEqual(light["secondaryBackgroundColor"].lower(), COLORS["canvas"])
+        self.assertEqual(light["textColor"].lower(), COLORS["ink_secondary"])
+        self.assertEqual(dark["primaryColor"].lower(), DARK["primary"])
+        self.assertEqual(dark["backgroundColor"].lower(), DARK["canvas_soft"])
+        self.assertEqual(dark["secondaryBackgroundColor"].lower(), DARK["surface"])
+        self.assertEqual(dark["textColor"].lower(), DARK["ink_secondary"])
+
+
+class DarkModeTests(unittest.TestCase):
+    def test_dark_palette_keeps_the_rules(self) -> None:
+        # the one structural accent stays in the same blue family (sticker sky reads on dark)
+        self.assertEqual(DARK["primary"], COLORS["accent_sky"])
+        self.assertEqual(DARK["secondary"], COLORS["secondary"])  # the night band is unchanged
+        self.assertEqual(DARK["canvas_soft"], "#171a2e")
+        self.assertEqual(DARK["surface"], "#1f2338")
+        self.assertEqual(DARK["ink"], "#f4f3f1")
+        # decoration never changes with polarity
+        for key in ("accent_pink", "accent_orange", "accent_teal", "accent_green", "accent_purple", "accent_sky"):
+            self.assertEqual(DARK[key], COLORS[key])
+
+    def test_stylesheet_switches_palette_but_not_structure(self) -> None:
+        light, dark = build_css("light"), build_css("dark")
+        self.assertIn("--canvas-soft: #f6f5f4", light)
+        self.assertNotIn("#171a2e", light)
+        self.assertIn("--canvas-soft: #171a2e", dark)
+        self.assertIn("--primary: #62aef0", dark)
+        self.assertNotIn("#f6f5f4", dark)
+        for rule in ("border-radius: 9999px", "border-radius: 12px", "border-radius: 4px", "family=Inter"):
+            self.assertIn(rule, dark)
+
+    def test_dots_resolve_against_the_active_palette(self) -> None:
+        self.assertEqual(dot("priority", "Critical", "dark"), COLORS["accent_pink"])
+        self.assertEqual(dot("nope", None, "dark"), DARK["ink_faint"])
 
 
 if __name__ == "__main__":

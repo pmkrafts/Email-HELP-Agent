@@ -38,6 +38,18 @@ HERO_STICKERS = (
     COLORS["accent_teal"], COLORS["accent_green"], COLORS["accent_sky"],
 )
 
+THEME = "light"  # set per run from the active Streamlit theme (see main())
+
+
+def active_theme() -> str:
+    """The theme Streamlit is currently rendering (the app menu offers System / Light / Dark)."""
+    try:
+        theme = st.context.theme
+        value = getattr(theme, "type", None) or theme.get("type")  # type: ignore[union-attr]
+        return "dark" if value == "dark" else "light"
+    except Exception:  # noqa: BLE001 - bare/older runtimes have no client context
+        return "light"
+
 
 def fmt_time(iso: str | None) -> str:
     if not iso:
@@ -215,14 +227,14 @@ def detail(row: dict) -> None:
     priority = row["priority"]
     review = row["review_status"]
     chips = (
-        chip(priority, dot("priority", priority))
-        + chip(row["sentiment"], dot("sentiment", row["sentiment"]))
-        + chip(row["urgency"], dot("urgency", row["urgency"]))
-        + chip(f"review: {review}", dot("review", review))
-        + chip(f"dispatch: {row['schedule_status']}", dot("review", row["schedule_status"]))
+        chip(priority, dot("priority", priority, THEME))
+        + chip(row["sentiment"], dot("sentiment", row["sentiment"], THEME))
+        + chip(row["urgency"], dot("urgency", row["urgency"], THEME))
+        + chip(f"review: {review}", dot("review", review, THEME))
+        + chip(f"dispatch: {row['schedule_status']}", dot("review", row["schedule_status"], THEME))
     )
     if row["judge_verdict"]:
-        chips += chip(f"judge: {row['judge_verdict']}", dot("judge", row["judge_verdict"]))
+        chips += chip(f"judge: {row['judge_verdict']}", dot("judge", row["judge_verdict"], THEME))
     st.markdown(chips, unsafe_allow_html=True)
     tabs = st.tabs(["Incoming email", "Classification", "Retrieved context (RAG)", "Draft response",
                     "Review & schedule", "Agent trace"])
@@ -292,8 +304,10 @@ def detail(row: dict) -> None:
 
 
 def main() -> None:
+    global THEME
     st.set_page_config(page_title="Email-HELP-Agent", layout="wide")
-    st.markdown(build_css(), unsafe_allow_html=True)
+    THEME = active_theme()
+    st.markdown(build_css(THEME), unsafe_allow_html=True)
     controls = sidebar()
 
     stickers = "".join(f"<span style='background:{colour}'></span>" for colour in HERO_STICKERS)

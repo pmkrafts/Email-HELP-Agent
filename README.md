@@ -110,8 +110,12 @@ structural accent — blue `#0075de` — reserved for the primary CTA and active
 through Streamlit's theme so widget internals follow it too; a decorative-only sticker palette that
 appears as small category dots on white chips, never as a fill; 12px cards, 8px utility buttons,
 pill CTAs, 4px inputs, hairline borders with barely-there layered shadows; and a single deep-indigo
-`#213183` hero band. `tests/test_ui_design.py` pins the tokens and the theme mapping so the UI
-cannot drift from the spec.
+`#213183` hero band. **Light and dark are both mapped** (`[theme.light]` / `[theme.dark]`): the dark
+polarity turns the canvas into the indigo night tone (`#171a2e`, cards `#1f2338`, hairline `#2f3450`,
+warm-white ink) and moves the single accent into the same blue family (`#62aef0`), while the sticker
+dots stay identical — decoration does not change with polarity. The app follows the Streamlit theme
+setting (menu → Settings → Theme: System / Light / Dark). `tests/test_ui_design.py` pins both
+palettes and the theme mapping so the UI cannot drift from the spec.
 
 ## Model routing — JEV + GPT together
 

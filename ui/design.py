@@ -41,6 +41,28 @@ COLORS = {
 
 RADII = {"xs": "4px", "sm": "5px", "md": "8px", "lg": "12px", "xl": "16px", "full": "9999px"}
 
+# Dark mode keeps the spec's discipline: the same blue family is the single structural accent
+# (the sticker-sky tint, since #0075de is too dark on dark surfaces), the canvas becomes the
+# indigo "night" tone the light theme reserves for its hero band, and the sticker palette is
+# unchanged because decoration never changes with polarity.
+DARK = {
+    **{key: value for key, value in COLORS.items() if key.startswith("accent_")},
+    "primary": COLORS["accent_sky"],
+    "primary_active": "#8ec7ff",
+    "on_primary": "#0f1220",
+    "secondary": "#213183",       # the night band stays, and now sits *above* the darker canvas
+    "canvas": "#1f2338",
+    "surface": "#1f2338",
+    "canvas_soft": "#171a2e",
+    "hairline": "#2f3450",
+    "input_border": "#3a405f",
+    "ink": "#f4f3f1",
+    "ink_secondary": "#d5d2ce",
+    "ink_muted": "#a8a49f",
+    "ink_faint": "#7d7a75",
+}
+PALETTES = {"light": COLORS, "dark": DARK}
+
 # barely-there layered elevation (never a hard cast)
 SHADOW_SOFT = (
     "rgba(0,0,0,0.01) 0 0.175px 1.041px, rgba(0,0,0,0.02) 0 0.8px 2.925px, "
@@ -77,7 +99,7 @@ JUDGE_DOT = {
 }
 
 
-def dot(kind: str, value: str | None) -> str:
+def dot(kind: str, value: str | None, theme: str = "light") -> str:
     """Hex colour for a status dot, never a fill."""
     table = {
         "priority": PRIORITY_DOT,
@@ -86,7 +108,8 @@ def dot(kind: str, value: str | None) -> str:
         "review": REVIEW_DOT,
         "judge": JUDGE_DOT,
     }.get(kind, {})
-    return COLORS.get(table.get(value or "", "ink_faint"), COLORS["ink_faint"])
+    palette = PALETTES.get(theme, COLORS)
+    return palette.get(table.get(value or "", "ink_faint"), palette["ink_faint"])
 
 
 def chip(label: str, colour: str) -> str:
@@ -97,8 +120,10 @@ def chip(label: str, colour: str) -> str:
     )
 
 
-def build_css() -> str:
-    c, r = COLORS, RADII
+def build_css(theme: str = "light") -> str:
+    """Stylesheet for the given theme ('light' | 'dark'); layout and radii never change."""
+    c = PALETTES.get(theme, COLORS)
+    r = RADII
     return f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -144,7 +169,7 @@ a {{ color: var(--primary); text-decoration: none; }}
 
 /* --- hero: the single dark indigo band --- */
 .hero-band {{
-  background: var(--secondary); color: #fff;
+  background: var(--secondary); color: #fff; border: 1px solid var(--hairline);
   padding: 36px 40px 32px; border-radius: {r['xl']}; margin: 4px 0 6px;
 }}
 .hero-band h1 {{ color: #fff; font-size: 40px; margin: 0 0 10px; }}
