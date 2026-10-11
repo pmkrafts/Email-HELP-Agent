@@ -24,9 +24,12 @@ POLICY_BANS: list[tuple[str, str]] = [
 
 
 class Reviewer:
-    def __init__(self, settings: Settings, client: LLMClient | None = None):
+    def __init__(self, settings: Settings, client: LLMClient | None = None, judge: LLMClient | None = None):
         self.settings = settings
         self.client = client
+        # The LLM second opinion is a verification step, so the cheap judge runs it first-class;
+        # the premium model is never spent on it when a judge is configured.
+        self.judge = judge or client
 
     def run(self, state: AgentState) -> ReviewResult:
         assert state.classification is not None and state.draft is not None
@@ -63,7 +66,7 @@ class Reviewer:
         else:
             status = "approved"
 
-        if self.client is not None and status == "approved":
+        if self.judge is not None and status == "approved":
             llm_result = self._llm_second_opinion(state)
             if llm_result is not None:
                 verdict = llm_result.get("status")
@@ -95,6 +98,6 @@ class Reviewer:
                 "draft": state.draft.text[:4000],  # type: ignore[union-attr]
                 "knowledge": "\n\n".join(c.content for c in state.context)[:4000],
             }, ensure_ascii=False)
-            return self.client.chat_json(system, user, temperature=0.2)  # type: ignore[union-attr]
+            return self.judge.chat_json(system, user, temperature=0.2)  # type: ignore[union-attr]
         except LLMError:
             return None

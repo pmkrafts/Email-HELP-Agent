@@ -71,7 +71,7 @@ def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool,
     summary = batch_summary(states, failures)
     repo.close()
 
-    _say("3/4", f"Pipeline: {args_label(batch_dir)} (mode: {settings.llm_provider} | judge: {settings.judge_provider})")
+    _say("3/4", f"Pipeline: {args_label(batch_dir)} (mode: {settings.llm_provider} | judge: {settings.judge_provider} | refine: {settings.refine_mode})")
     print(f"      processed {summary['processed']}  failed {summary['failed']}  "
           f"priorities {summary['by_priority']}")
     if summary.get("judge_verdicts"):

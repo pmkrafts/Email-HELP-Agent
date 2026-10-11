@@ -82,26 +82,50 @@ detection, so payload text cannot influence priority; the attempt itself is flag
 recall 0.89 on batch_100. Confidence-floor compliance is 50–65% — the rules engine is deliberately
 more conservative than the label authors' expectations (see the local scorecard for the gap list).
 
-## Model routing (rules → judge → primary)
+## Model routing — JEV + GPT together
 
-The classifier is deliberately tiered so premium spend scales with *disagreement rate*, not volume:
+The pipeline is a cost ladder: premium spend scales with the *disagreement rate*, not with volume.
 
-| Tier | Engine | When it runs | Cost profile |
-|---|---|---|---|
-| 0 | deterministic rules | always | zero tokens — this is the default and how the accuracy numbers above were achieved |
-| 1 | primary model (OpenAI etc.) | `--with-llm` | one premium call per email |
-| 2 | judge channel — **JEV** or any cheap OpenAI-compatible endpoint | `--with-judge` | one cheap call per email; on disagreement, *only that email* is escalated to the primary model for adjudication (or the judge's correction is applied when no primary is set) |
+| Tier | Engine | Cost profile |
+|---|---|---|
+| 0 | deterministic rules | zero tokens — the default, and how the accuracy numbers above were achieved |
+| 1 | cheap judge — **JEV `jev-1.13`** (any OpenAI-compatible endpoint) | one cheap call per email; verifies the proposal and the draft |
+| 2 | strong model — **OpenAI GPT** | only where it buys something: drafting, plus adjudication when the judge disagrees |
+
+| Pairing | Config | Calls per email (happy path) |
+|---|---|---|
+| Rules only | default | 0 |
+| Rules + JEV | `--with-judge` | 1 cheap judge call; JEV corrects directly when no strong model is configured |
+| **GPT + JEV, cost-first (recommended)** | `EMAIL_AGENT_REFINE_MODE=escalations_only` + both models | 1 JEV judge + 1 JEV draft-review + 1 GPT draft; **0 GPT classification calls** |
+| GPT + JEV, verify-everything | `EMAIL_AGENT_REFINE_MODE=always` (default) | adds 1 GPT classification per email, which JEV then verifies |
+
+Judgement is deliberately cross-provider: JEV never shares weights with the model it is checking, so
+"agreement" is information rather than self-confirmation. On disagreement, *only that email* is
+escalated to GPT for adjudication.
 
 ```bash
-cp .env.example .env      # set EMAIL_AGENT_JUDGE_BASE_URL / _API_KEY / _MODEL to point at JEV
+# GPT as the strong model, JEV as the judge (two gateways; one shared key is fine)
+EMAIL_AGENT_LLM=openai
+EMAIL_AGENT_BASE_URL=https://api.openai.com/v1
+EMAIL_AGENT_MODEL=gpt-4o-mini
+EMAIL_AGENT_API_KEY=<openai key>
+
+EMAIL_AGENT_JUDGE_LLM=jev
+EMAIL_AGENT_JUDGE_BASE_URL=https://<your-gateway>/v1
+EMAIL_AGENT_JUDGE_MODEL=jev-1.13          # default; _API_KEY falls back to EMAIL_AGENT_API_KEY
+
+EMAIL_AGENT_REFINE_MODE=escalations_only   # GPT classifies only when JEV disagrees
 python run.py --with-judge
 ```
 
+Measured on the 12-email golden set with both gateways live (mock endpoints, same code path):
+GPT = 11 drafts + 1 adjudication, JEV = 12 judge calls + 10 draft reviews, verdicts
+**11 agreed / 1 adjudicated**, 0 failures.
+
 Every tier degrades safely: a judge outage leaves the rules baseline untouched (`judge=error`),
 and validity is enforced on all judge output. Batch summaries report
-`agreed / overridden / adjudicated / error` counts; behaviour is tested against a mock endpoint in
-`tests/test_judge.py`. Primary refinement uses the OpenAI-compatible client in
-`src/email_agent/llm.py` with JSON mode, retries and backoff.
+`agreed / overridden / adjudicated / error` counts; behaviour is tested against mock endpoints in
+`tests/test_judge.py` (including the per-gateway call-attribution contract above).
 
 ## Data & verification
 

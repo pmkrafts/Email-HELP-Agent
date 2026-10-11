@@ -43,7 +43,10 @@ class Classifier:
             flags=result.flags,
             engine="rules",
         )
-        if self.client is not None:
+        # Escalation ladder. `always`: the strong model refines every email (premium quality),
+        # then the judge verifies it. `escalations_only`: the strong model is *reserved for
+        # disagreements* — agreement keeps the rules/judge path and premium spend stays at zero.
+        if self.client is not None and self.settings.refine_mode == "always":
             classification = self._refine(email, classification)
         if self.judge is not None:
             classification = self._judge(email, classification)

@@ -41,7 +41,7 @@ class Orchestrator:
         )
         self.classifier = Classifier(settings, client, judge)
         self.drafter = Drafter(settings, self.kb, client)
-        self.reviewer = Reviewer(settings, client)
+        self.reviewer = Reviewer(settings, client, judge)
         self.scheduler = Scheduler(settings)
 
     def process(self, email: ParsedEmail, now: datetime | None = None) -> AgentState:

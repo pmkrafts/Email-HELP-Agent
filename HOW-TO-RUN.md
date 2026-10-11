@@ -86,13 +86,30 @@ Tier 2  judge channel ("JEV")   optional verification    (cheap model reviews th
 |---|---|---|
 | Rules only (default) | — | nothing to configure |
 | Primary refinement | `OPENAI_API_KEY` + `--with-llm` | every email refined by the premium model |
-| **Judge / JEV** | `EMAIL_AGENT_JUDGE_BASE_URL` + `_API_KEY` + `--with-judge` | cheap model reviews each proposal; agreement keeps the cheap path, disagreement routes **that single email** to the primary model (or applies the judge's correction when no primary is set) |
-| Primary + judge | both flags | premium output is verified; the extra premium call happens only on disputes |
+| **Judge / JEV** | `EMAIL_AGENT_JUDGE_BASE_URL` + `_API_KEY` + `--with-judge` | JEV (`jev-1.13`) reviews each proposal; agreement keeps the cheap path, disagreement routes **that single email** to the primary model (or applies the judge's correction when no primary is set) |
+| **GPT + JEV (recommended)** | both of the above + `EMAIL_AGENT_REFINE_MODE=escalations_only` | cost-first: JEV judges every email and reviews every draft; GPT is spent only on drafting and on disagreements |
 
 ```bash
-cp .env.example .env      # set the judge block (any OpenAI-compatible endpoint works)
+cp .env.example .env
+# Judge tier — JEV (model id jev-1.13) on any OpenAI-compatible gateway:
+#   EMAIL_AGENT_JUDGE_LLM=jev
+#   EMAIL_AGENT_JUDGE_BASE_URL=https://<your-gateway>/v1
+#   EMAIL_AGENT_JUDGE_MODEL=jev-1.13          (default; _API_KEY falls back to EMAIL_AGENT_API_KEY)
+# Strong tier — OpenAI GPT:
+#   EMAIL_AGENT_LLM=openai
+#   EMAIL_AGENT_BASE_URL=https://api.openai.com/v1
+#   EMAIL_AGENT_MODEL=gpt-4o-mini
+#   EMAIL_AGENT_API_KEY=<openai key>
+# Cost-first pairing (GPT classifies only when JEV disagrees):
+#   EMAIL_AGENT_REFINE_MODE=escalations_only
 python run.py --with-judge
 ```
+
+Measured on the golden set with both gateways live (mock endpoints, same code path): GPT = 11 drafts
++ 1 adjudication, JEV = 12 judge calls + 10 draft reviews, verdicts 11 agreed / 1 adjudicated, 0 failures.
+
+Want JEV to do the classifying too? Point the primary channel at it
+(`EMAIL_AGENT_LLM=jev`, `EMAIL_AGENT_MODEL=jev-1.13`, same gateway) and pass `--with-llm`.
 
 Judge verdicts are reported per batch (`agreed` / `overridden` / `adjudicated` / `error`) and logged
 per email; a judge outage degrades to the tier below instead of failing the batch. Endpoint

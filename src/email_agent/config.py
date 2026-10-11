@@ -9,6 +9,7 @@ from typing import Any
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_JUDGE_MODEL = "jev-1.13"  # the JEV model id (display name "Jev 1.13")
 
 
 @dataclass
@@ -25,6 +26,7 @@ class Settings:
     judge_model: str = ""
     judge_base_url: str = ""
     judge_api_key: str = field(default="", repr=False)
+    refine_mode: str = "always"  # always | escalations_only (primary reserved for adjudication)
     max_rewrites: int = 2
 
     @property
@@ -46,17 +48,20 @@ def load_settings(args: Any | None = None) -> Settings:
     root = project_root()
     rules = load_rules()
     llm_provider = getattr(args, "llm", None) or os.environ.get("EMAIL_AGENT_LLM", "none")
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if llm_provider == "openai" and not api_key:
-        llm_provider = "none"
+    api_key = os.environ.get("EMAIL_AGENT_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+    if llm_provider != "none" and not api_key:
+        llm_provider = "none"  # any provider (openai / jev / gateway name) needs a key
     judge_provider = (
         getattr(args, "judge", None)
         or os.environ.get("EMAIL_AGENT_JUDGE_LLM", os.environ.get("EMAIL_AGENT_JUDGE", "none"))
     )
     judge_base_url = os.environ.get("EMAIL_AGENT_JUDGE_BASE_URL", "")
-    judge_api_key = os.environ.get("EMAIL_AGENT_JUDGE_API_KEY", "")
+    judge_api_key = os.environ.get("EMAIL_AGENT_JUDGE_API_KEY") or api_key  # shared gateway keys are common
     if judge_provider != "none" and not (judge_base_url and judge_api_key):
         judge_provider = "none"  # judge needs an endpoint + key; silently stays off otherwise
+    refine_mode = os.environ.get("EMAIL_AGENT_REFINE_MODE", "always")
+    if refine_mode not in {"always", "escalations_only"}:
+        refine_mode = "always"
     settings = Settings(
         root=root,
         db_path=Path(getattr(args, "db", None) or root / "storage" / "agent.db"),
@@ -67,9 +72,10 @@ def load_settings(args: Any | None = None) -> Settings:
         llm_base_url=os.environ.get("EMAIL_AGENT_BASE_URL", DEFAULT_BASE_URL),
         llm_api_key=api_key,
         judge_provider=judge_provider,
-        judge_model=os.environ.get("EMAIL_AGENT_JUDGE_MODEL", ""),
+        judge_model=os.environ.get("EMAIL_AGENT_JUDGE_MODEL", DEFAULT_JUDGE_MODEL),
         judge_base_url=judge_base_url,
         judge_api_key=judge_api_key,
+        refine_mode=refine_mode,
         max_rewrites=int(rules["thresholds"]["max_rewrite_loops"]),
     )
     return settings

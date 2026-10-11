@@ -66,15 +66,25 @@ class JudgeTests(unittest.TestCase):
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base_url = f"http://127.0.0.1:{cls.server.server_address[1]}/v1"
+        # second endpoint standing in for the premium provider (OpenAI GPT)
+        cls.primary_state = _MockState()
+        cls.primary_server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(cls.primary_state))
+        cls.primary_thread = threading.Thread(target=cls.primary_server.serve_forever, daemon=True)
+        cls.primary_thread.start()
+        cls.primary_base_url = f"http://127.0.0.1:{cls.primary_server.server_address[1]}/v1"
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.server.shutdown()
         cls.server.server_close()
+        cls.primary_server.shutdown()
+        cls.primary_server.server_close()
 
     def setUp(self) -> None:
         self.state.responses.clear()
         self.state.requests.clear()
+        self.primary_state.responses.clear()
+        self.primary_state.requests.clear()
         self.settings = load_settings(None)
 
     def _client(self, model: str = "jev-test") -> LLMClient:
@@ -144,6 +154,103 @@ class JudgeTests(unittest.TestCase):
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value
+
+    def test_jev_model_id_and_generic_providers(self) -> None:
+        from email_agent.llm import get_client, get_judge_client
+
+        keys = ("EMAIL_AGENT_LLM", "EMAIL_AGENT_MODEL", "EMAIL_AGENT_API_KEY", "EMAIL_AGENT_BASE_URL",
+                "EMAIL_AGENT_JUDGE_LLM", "EMAIL_AGENT_JUDGE_BASE_URL", "EMAIL_AGENT_JUDGE_API_KEY",
+                "EMAIL_AGENT_JUDGE_MODEL", "OPENAI_API_KEY")
+        saved = {key: os.environ.get(key) for key in keys}
+        try:
+            for key in keys:
+                os.environ.pop(key, None)
+            # judge defaults to the JEV model id shown in the gateway ("Jev 1.13")
+            self.assertEqual(load_settings(None).judge_model, "jev-1.13")
+            self.assertEqual(get_judge_client("jev", "k", "", "https://gateway.example/v1").model, "jev-1.13")
+
+            # JEV can serve as the primary (classification/drafting) model too: provider names are free-form
+            os.environ["EMAIL_AGENT_LLM"] = "jev"
+            os.environ["EMAIL_AGENT_API_KEY"] = "k"
+            os.environ["EMAIL_AGENT_BASE_URL"] = "https://gateway.example/v1"
+            os.environ["EMAIL_AGENT_MODEL"] = "jev-1.13"
+            settings = load_settings(None)
+            self.assertEqual(settings.llm_provider, "jev")
+            self.assertEqual(settings.llm_model, "jev-1.13")
+            self.assertIsNotNone(get_client("jev", "k", "jev-1.13", "https://gateway.example/v1"))
+
+            # without a key the provider disables itself instead of failing mid-batch
+            os.environ.pop("EMAIL_AGENT_API_KEY")
+            self.assertEqual(load_settings(None).llm_provider, "none")
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+    def test_escalations_only_spends_nothing_when_judge_agrees(self) -> None:
+        """The JEV + GPT pairing in cost-first mode: agreement == zero premium calls."""
+        from email_agent.llm import get_client, get_judge_client
+
+        saved = dict(os.environ)
+        try:
+            for key in list(os.environ):
+                if key.startswith("EMAIL_AGENT_"):
+                    os.environ.pop(key)
+            os.environ.update({
+                "EMAIL_AGENT_REFINE_MODE": "escalations_only",
+                "EMAIL_AGENT_LLM": "openai", "EMAIL_AGENT_API_KEY": "k",
+                "EMAIL_AGENT_BASE_URL": self.primary_base_url, "EMAIL_AGENT_MODEL": "gpt-mock",
+                "EMAIL_AGENT_JUDGE_LLM": "jev", "EMAIL_AGENT_JUDGE_BASE_URL": self.base_url,
+            })
+            settings = load_settings(None)
+            self.assertEqual(settings.refine_mode, "escalations_only")
+            self.assertEqual(settings.judge_model, "jev-1.13")
+            self.assertEqual(settings.judge_api_key, "k")  # falls back to the shared gateway key
+            primary = get_client(settings.llm_provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url)
+            judge = get_judge_client(settings.judge_provider, settings.judge_api_key, settings.judge_model, settings.judge_base_url)
+
+            self.state.responses.append({"agree": True, "reason": "defensible"})
+            result = Classifier(settings, client=primary, judge=judge).run(_email("My order AUR-1005 is late."))
+            self.assertEqual(result.judge_verdict, "agreed")
+            self.assertEqual(result.engine, "rules")
+            self.assertEqual(len(self.state.requests), 1)              # one cheap judge call
+            self.assertEqual(len(self.primary_state.requests), 0)      # premium untouched
+            self.assertEqual(self.state.requests[0]["model"], "jev-1.13")
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_escalations_only_spends_one_call_on_disagreement(self) -> None:
+        from email_agent.llm import get_client, get_judge_client
+
+        saved = dict(os.environ)
+        try:
+            for key in list(os.environ):
+                if key.startswith("EMAIL_AGENT_"):
+                    os.environ.pop(key)
+            os.environ.update({
+                "EMAIL_AGENT_REFINE_MODE": "escalations_only",
+                "EMAIL_AGENT_LLM": "openai", "EMAIL_AGENT_API_KEY": "k",
+                "EMAIL_AGENT_BASE_URL": self.primary_base_url, "EMAIL_AGENT_MODEL": "gpt-mock",
+                "EMAIL_AGENT_JUDGE_LLM": "jev", "EMAIL_AGENT_JUDGE_BASE_URL": self.base_url,
+            })
+            settings = load_settings(None)
+            primary = get_client(settings.llm_provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url)
+            judge = get_judge_client(settings.judge_provider, settings.judge_api_key, settings.judge_model, settings.judge_base_url)
+
+            self.state.responses.append({"agree": False, "priority": "High", "reason": "deadline language"})
+            self.primary_state.responses.append({"priority": "High", "sentiment": "negative", "urgency": "high", "confidence": 0.8})
+            result = Classifier(settings, client=primary, judge=judge).run(_email("My order AUR-1006 is late and I need it today."))
+            self.assertEqual(result.judge_verdict, "adjudicated")
+            self.assertEqual(len(self.state.requests), 1)              # the judge call
+            self.assertEqual(len(self.primary_state.requests), 1)      # exactly one adjudication
+            self.assertEqual(self.primary_state.requests[0]["model"], "gpt-mock")
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
 
 
 if __name__ == "__main__":
