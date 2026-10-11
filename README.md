@@ -89,38 +89,46 @@ The pipeline is a cost ladder: premium spend scales with the *disagreement rate*
 | Tier | Engine | Cost profile |
 |---|---|---|
 | 0 | deterministic rules | zero tokens — the default, and how the accuracy numbers above were achieved |
-| 1 | cheap judge — **JEV `jev-1.13`** (any OpenAI-compatible endpoint) | one cheap call per email; verifies the proposal and the draft |
+| 1 | cheap judge — **Jev `jev-1.13`** (System One via OpenCode Zen) or any cheap OpenAI-compatible model | one cheap call per email; verifies the classification and the draft |
 | 2 | strong model — **OpenAI GPT** | only where it buys something: drafting, plus adjudication when the judge disagrees |
 
 | Pairing | Config | Calls per email (happy path) |
 |---|---|---|
 | Rules only | default | 0 |
-| Rules + JEV | `--with-judge` | 1 cheap judge call; JEV corrects directly when no strong model is configured |
-| **GPT + JEV, cost-first (recommended)** | `EMAIL_AGENT_REFINE_MODE=escalations_only` + both models | 1 JEV judge + 1 JEV draft-review + 1 GPT draft; **0 GPT classification calls** |
-| GPT + JEV, verify-everything | `EMAIL_AGENT_REFINE_MODE=always` (default) | adds 1 GPT classification per email, which JEV then verifies |
-
-Judgement is deliberately cross-provider: JEV never shares weights with the model it is checking, so
-"agreement" is information rather than self-confirmation. On disagreement, *only that email* is
-escalated to GPT for adjudication.
+| Rules + Jev | `EMAIL_AGENT_JUDGE_LLM=jev` + Zen key | 1 System One call (6 atomic questions); Jev's corrections apply directly when no strong model is configured |
+| **GPT + Jev, cost-first (recommended)** | `EMAIL_AGENT_REFINE_MODE=escalations_only` + both models | 1 Jev verdict + 1 Jev draft review + 1 GPT draft; **0 GPT classification calls** |
+| GPT + Jev, verify-everything | `EMAIL_AGENT_REFINE_MODE=always` (default) | adds 1 GPT classification per email, which Jev then verifies |
 
 ```bash
-# GPT as the strong model, JEV as the judge (two gateways; one shared key is fine)
+# Jev as the judge (OpenCode Zen gateway), GPT as the strong model
+EMAIL_AGENT_JUDGE_LLM=jev
+EMAIL_AGENT_JUDGE_BASE_URL=https://opencode.ai/zen/v1
+EMAIL_AGENT_JUDGE_MODEL=jev-1.13           # or jev-1.13-free
+OPENCODE_API_KEY=<zen key>                 # or EMAIL_AGENT_JUDGE_API_KEY
+
 EMAIL_AGENT_LLM=openai
 EMAIL_AGENT_BASE_URL=https://api.openai.com/v1
 EMAIL_AGENT_MODEL=gpt-4o-mini
 EMAIL_AGENT_API_KEY=<openai key>
 
-EMAIL_AGENT_JUDGE_LLM=jev
-EMAIL_AGENT_JUDGE_BASE_URL=https://<your-gateway>/v1
-EMAIL_AGENT_JUDGE_MODEL=jev-1.13          # default; _API_KEY falls back to EMAIL_AGENT_API_KEY
-
-EMAIL_AGENT_REFINE_MODE=escalations_only   # GPT classifies only when JEV disagrees
+EMAIL_AGENT_REFINE_MODE=escalations_only   # GPT classifies only when Jev disagrees
+python email-agent.py check                # verify both tiers with a live ping
 python run.py --with-judge
 ```
 
-Measured on the 12-email golden set with both gateways live (mock endpoints, same code path):
-GPT = 11 drafts + 1 adjudication, JEV = 12 judge calls + 10 draft reviews, verdicts
-**11 agreed / 1 adjudicated**, 0 failures.
+**Jev is not a chat model.** OpenCode Zen exposes `jev-1.13` at `/zen/v1/systemone`: it evaluates
+*typed questions* (`noul` yes/no, `choice`, `score`) against a `state` and returns values,
+probabilities and calibrated confidences. The code builds atomic questions (three defensibility
+checks + three correction choices for classification; three policy checks + a verdict for drafts)
+and composes the verdict itself. Jev therefore serves the judge tier only — it cannot be the
+primary model (it generates no text). Pricing is listed on the Zen page (currently $0.042 per 1M
+input tokens, output free; a `jev-1.13-free` variant exists) — verify current prices before relying
+on cost numbers.
+
+Judgement is deliberately cross-provider: the judge never shares weights with the model it checks.
+On disagreement, *only that email* is escalated to GPT for adjudication. Measured on the 12-email
+golden set with mock gateways (same code path): GPT = 11 drafts + 1 adjudication, Jev = 12 verdicts
++ 10 draft reviews, **11 agreed / 1 adjudicated**, 0 failures.
 
 Every tier degrades safely: a judge outage leaves the rules baseline untouched (`judge=error`),
 and validity is enforced on all judge output. Batch summaries report

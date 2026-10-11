@@ -10,6 +10,7 @@ from typing import Any
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_JUDGE_MODEL = "jev-1.13"  # the JEV model id (display name "Jev 1.13")
+DEFAULT_JUDGE_BASE_URL = "https://opencode.ai/zen/v1"  # OpenCode Zen gateway; Jev lives at /systemone
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Settings:
     llm_base_url: str = DEFAULT_BASE_URL
     llm_api_key: str = field(default="", repr=False)
     judge_provider: str = "none"  # none | jev | any OpenAI-compatible endpoint
+    judge_api: str = "auto"  # auto | systemone | chat
     judge_model: str = ""
     judge_base_url: str = ""
     judge_api_key: str = field(default="", repr=False)
@@ -55,8 +57,15 @@ def load_settings(args: Any | None = None) -> Settings:
         getattr(args, "judge", None)
         or os.environ.get("EMAIL_AGENT_JUDGE_LLM", os.environ.get("EMAIL_AGENT_JUDGE", "none"))
     )
-    judge_base_url = os.environ.get("EMAIL_AGENT_JUDGE_BASE_URL", "")
-    judge_api_key = os.environ.get("EMAIL_AGENT_JUDGE_API_KEY") or api_key  # shared gateway keys are common
+    judge_base_url = os.environ.get("EMAIL_AGENT_JUDGE_BASE_URL") or DEFAULT_JUDGE_BASE_URL
+    judge_api_key = (
+        os.environ.get("EMAIL_AGENT_JUDGE_API_KEY")  # explicit judge key
+        or os.environ.get("OPENCODE_API_KEY")        # OpenCode Zen key (Jev gateway)
+        or api_key                                   # shared gateway key
+    )
+    judge_api = os.environ.get("EMAIL_AGENT_JUDGE_API", "auto")
+    if judge_api not in {"auto", "systemone", "chat"}:
+        judge_api = "auto"
     if judge_provider != "none" and not (judge_base_url and judge_api_key):
         judge_provider = "none"  # judge needs an endpoint + key; silently stays off otherwise
     refine_mode = os.environ.get("EMAIL_AGENT_REFINE_MODE", "always")
@@ -72,6 +81,7 @@ def load_settings(args: Any | None = None) -> Settings:
         llm_base_url=os.environ.get("EMAIL_AGENT_BASE_URL", DEFAULT_BASE_URL),
         llm_api_key=api_key,
         judge_provider=judge_provider,
+        judge_api=judge_api,
         judge_model=os.environ.get("EMAIL_AGENT_JUDGE_MODEL", DEFAULT_JUDGE_MODEL),
         judge_base_url=judge_base_url,
         judge_api_key=judge_api_key,

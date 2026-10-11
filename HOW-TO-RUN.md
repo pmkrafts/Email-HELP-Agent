@@ -91,25 +91,25 @@ Tier 2  judge channel ("JEV")   optional verification    (cheap model reviews th
 
 ```bash
 cp .env.example .env
-# Judge tier — JEV (model id jev-1.13) on any OpenAI-compatible gateway:
+# Judge tier — Jev (System One) on OpenCode Zen. Jev evaluates typed questions (no chat);
+# the code builds them. Verify with:  python email-agent.py check
 #   EMAIL_AGENT_JUDGE_LLM=jev
-#   EMAIL_AGENT_JUDGE_BASE_URL=https://<your-gateway>/v1
-#   EMAIL_AGENT_JUDGE_MODEL=jev-1.13          (default; _API_KEY falls back to EMAIL_AGENT_API_KEY)
-# Strong tier — OpenAI GPT:
+#   EMAIL_AGENT_JUDGE_BASE_URL=https://opencode.ai/zen/v1
+#   EMAIL_AGENT_JUDGE_MODEL=jev-1.13        (or jev-1.13-free)
+#   OPENCODE_API_KEY=<zen key>              (or EMAIL_AGENT_JUDGE_API_KEY)
+# Strong tier — OpenAI GPT (Jev cannot be the primary: it generates no text):
 #   EMAIL_AGENT_LLM=openai
 #   EMAIL_AGENT_BASE_URL=https://api.openai.com/v1
 #   EMAIL_AGENT_MODEL=gpt-4o-mini
 #   EMAIL_AGENT_API_KEY=<openai key>
-# Cost-first pairing (GPT classifies only when JEV disagrees):
+# Cost-first pairing (GPT classifies only when Jev disagrees):
 #   EMAIL_AGENT_REFINE_MODE=escalations_only
 python run.py --with-judge
 ```
 
-Measured on the golden set with both gateways live (mock endpoints, same code path): GPT = 11 drafts
-+ 1 adjudication, JEV = 12 judge calls + 10 draft reviews, verdicts 11 agreed / 1 adjudicated, 0 failures.
-
-Want JEV to do the classifying too? Point the primary channel at it
-(`EMAIL_AGENT_LLM=jev`, `EMAIL_AGENT_MODEL=jev-1.13`, same gateway) and pass `--with-llm`.
+Measured on the golden set with mock gateways (same code path): GPT = 11 drafts + 1 adjudication,
+Jev = 12 verdicts + 10 draft reviews, 11 agreed / 1 adjudicated, 0 failures.
+A different cheap OpenAI-compatible judge still works via `EMAIL_AGENT_JUDGE_API=chat`.
 
 Judge verdicts are reported per batch (`agreed` / `overridden` / `adjudicated` / `error`) and logged
 per email; a judge outage degrades to the tier below instead of failing the batch. Endpoint

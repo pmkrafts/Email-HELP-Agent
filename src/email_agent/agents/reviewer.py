@@ -1,16 +1,15 @@
 """Review agent: policy validation + confidence gating (docs 06-Rules section 3).
 
-Deterministic validator first (regex policy bans), then confidence thresholds and escalation
-rules. When an LLM is configured it can add a second opinion, but the deterministic checks
-always run — the review layer is never fully delegated.
+The deterministic validator always runs. When a judge channel is configured, its typed-question
+review (Jev/System One or a chat judge) adds a second opinion; without one, review stays fully
+deterministic.
 """
 from __future__ import annotations
 
-import json
 import re
 
 from ..config import Settings
-from ..llm import LLMClient, LLMError, load_prompt
+from ..judges import JudgeChannel
 from ..models import AgentState, ReviewResult
 
 POLICY_BANS: list[tuple[str, str]] = [
@@ -24,12 +23,10 @@ POLICY_BANS: list[tuple[str, str]] = [
 
 
 class Reviewer:
-    def __init__(self, settings: Settings, client: LLMClient | None = None, judge: LLMClient | None = None):
+    def __init__(self, settings: Settings, judge: JudgeChannel | None = None):
         self.settings = settings
-        self.client = client
-        # The LLM second opinion is a verification step, so the cheap judge runs it first-class;
-        # the premium model is never spent on it when a judge is configured.
-        self.judge = judge or client
+        # The draft review is a verification step: the cheap judge tier runs it first-class.
+        self.judge = judge
 
     def run(self, state: AgentState) -> ReviewResult:
         assert state.classification is not None and state.draft is not None
@@ -67,7 +64,8 @@ class Reviewer:
             status = "approved"
 
         if self.judge is not None and status == "approved":
-            llm_result = self._llm_second_opinion(state)
+            knowledge = "\n\n".join(f"[{c.source}] {c.title}\n{c.content}" for c in state.context)
+            llm_result = self.judge.review_draft(state.email, state.draft.text, knowledge)
             if llm_result is not None:
                 verdict = llm_result.get("status")
                 if verdict in {"needs_revision", "escalate"}:
@@ -81,23 +79,3 @@ class Reviewer:
             suggested_changes="; ".join(suggestions) or None,
             final_confidence=final_confidence,
         )
-
-    def _llm_second_opinion(self, state: AgentState) -> dict | None:
-        try:
-            system = load_prompt(self.settings.prompts_dir, "reviewer")
-            user = json.dumps({
-                "email": {
-                    "subject": state.email.subject,
-                    "body": state.email.body_text[:4000],
-                },
-                "classification": {
-                    "sentiment": state.classification.sentiment,  # type: ignore[union-attr]
-                    "priority": state.classification.priority,  # type: ignore[union-attr]
-                    "flags": state.classification.flags,  # type: ignore[union-attr]
-                },
-                "draft": state.draft.text[:4000],  # type: ignore[union-attr]
-                "knowledge": "\n\n".join(c.content for c in state.context)[:4000],
-            }, ensure_ascii=False)
-            return self.judge.chat_json(system, user, temperature=0.2)  # type: ignore[union-attr]
-        except LLMError:
-            return None

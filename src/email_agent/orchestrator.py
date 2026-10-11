@@ -16,7 +16,8 @@ from .agents.reviewer import Reviewer
 from .agents.scheduler import Scheduler
 from .analytics import RunLogger
 from .config import Settings
-from .llm import LLMClient, get_client, get_judge_client
+from .judges import build_judge
+from .llm import LLMClient, get_client
 from .models import AgentState, ParsedEmail
 from .parser import parse_dir
 from .retrieval import KnowledgeBase
@@ -36,12 +37,10 @@ class Orchestrator:
         client: LLMClient | None = get_client(
             settings.llm_provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url
         )
-        judge: LLMClient | None = get_judge_client(
-            settings.judge_provider, settings.judge_api_key, settings.judge_model, settings.judge_base_url
-        )
+        judge = build_judge(settings)
         self.classifier = Classifier(settings, client, judge)
         self.drafter = Drafter(settings, self.kb, client)
-        self.reviewer = Reviewer(settings, client, judge)
+        self.reviewer = Reviewer(settings, judge)
         self.scheduler = Scheduler(settings)
 
     def process(self, email: ParsedEmail, now: datetime | None = None) -> AgentState:

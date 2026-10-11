@@ -117,10 +117,62 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def cmd_check(args: argparse.Namespace) -> int:
+    """Connectivity check for the configured model tiers (no batch processing)."""
+    from .judges import SystemOneJudge, build_judge
+    from .llm import LLMError, get_client
+    from .models import Classification, ParsedEmail
+
+    settings = load_settings(args)
+    print(f"primary: {settings.llm_provider} / {settings.llm_model or '-'} @ {settings.llm_base_url}")
+    print(f"judge  : {settings.judge_provider} / {settings.judge_model or '-'} @ {settings.judge_base_url} "
+          f"(api: {settings.judge_api}, refine: {settings.refine_mode})")
+    ok = True
+
+    primary = get_client(settings.llm_provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url)
+    if primary is None:
+        print("primary: not configured - set EMAIL_AGENT_LLM and EMAIL_AGENT_API_KEY")
+    else:
+        try:
+            reply = primary.chat_json('Reply with JSON only: {"ping": "pong"}', "ping", temperature=0.0)
+            print(f"primary: OK -> {reply}")
+        except LLMError as exc:
+            ok = False
+            print(f"primary: FAILED -> {exc}")
+
+    channel = build_judge(settings)
+    if channel is None:
+        print("judge  : not configured - set EMAIL_AGENT_JUDGE_LLM=jev and an OpenCode Zen key "
+              "(OPENCODE_API_KEY or EMAIL_AGENT_JUDGE_API_KEY)")
+    elif isinstance(channel, SystemOneJudge):
+        try:
+            response = channel.client.evaluate(
+                "My order is late and I want a refund.",
+                {"is_urgent": {"type": "noul", "instructions": "Does this message express urgency?"}},
+            )
+            print(f"judge  : OK -> answers={json.dumps(response.get('answers', {}))} usage={response.get('usage', {})}")
+        except LLMError as exc:
+            ok = False
+            print(f"judge  : FAILED -> {exc}")
+    else:
+        probe = Classification(sentiment="neutral", urgency="medium", priority="Medium", priority_score=4.0,
+                               category="other", confidence=0.5, reasoning="connectivity probe")
+        email = ParsedEmail(message_id="probe", from_address="probe@example.com", from_name=None,
+                            to_addresses=[], subject="Connectivity probe", body_text="My order is late.",
+                            date=None, raw_path="probe", source_format="eml")
+        verdict = channel.verdict(email, probe)
+        if verdict is None:
+            ok = False
+            print("judge  : FAILED -> no usable verdict")
+        else:
+            print(f"judge  : OK -> {json.dumps(verdict, ensure_ascii=False)}")
+    return 0 if ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="email_agent", description="Agentic email automation (POC)")
     parser.add_argument("--db", help="SQLite path (default: storage/agent.db)")
-    parser.add_argument("--llm", choices=["none", "openai"], help="LLM provider for refinement (default: none)")
+    parser.add_argument("--llm", help="refinement provider name: openai, jev, ... or none (default: none)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="process a batch of emails")
@@ -137,6 +189,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sum_p = sub.add_parser("summary", help="aggregate stats from the database")
     sum_p.set_defaults(func=cmd_summary)
+
+    check_p = sub.add_parser("check", help="verify the configured model tiers (primary + judge) with a live ping")
+    check_p.set_defaults(func=cmd_check)
 
     eval_p = sub.add_parser("eval", help="score against labeled batches")
     eval_p.add_argument("--batches", nargs="*", help=f"batch dirs (default: {' '.join(BATCHES)})")

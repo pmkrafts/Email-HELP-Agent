@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 from ..config import Settings
+from ..judges import JudgeChannel
 from ..llm import LLMClient, LLMError, load_prompt
 from ..models import Classification, ParsedEmail
 from ..rules import score_email
@@ -25,7 +26,7 @@ PRIORITIES = {"Low", "Medium", "High", "Critical"}
 
 
 class Classifier:
-    def __init__(self, settings: Settings, client: LLMClient | None = None, judge: LLMClient | None = None):
+    def __init__(self, settings: Settings, client: LLMClient | None = None, judge: JudgeChannel | None = None):
         self.settings = settings
         self.client = client
         self.judge = judge
@@ -76,7 +77,7 @@ class Classifier:
 
     # -- tier 2: judge channel (JEV) ---------------------------------------
     def _judge(self, email: ParsedEmail, proposal: Classification) -> Classification:
-        data = self._ask_judge(email, proposal)
+        data = self.judge.verdict(email, proposal)
         if data is None:
             proposal.judge_verdict = "error"
             return proposal
@@ -99,25 +100,6 @@ class Classifier:
         proposal.judge_verdict = "agreed"  # judge disagreed but returned nothing usable
         proposal.reasoning = f"{proposal.reasoning} | judge: unusable correction, kept proposal"
         return proposal
-
-    def _ask_judge(self, email: ParsedEmail, proposal: Classification) -> dict | None:
-        try:
-            system = load_prompt(self.settings.prompts_dir, "judge")
-            user = json.dumps({
-                "subject": email.subject,
-                "body": email.body_text[:4000],
-                "proposed": {
-                    "sentiment": proposal.sentiment,
-                    "urgency": proposal.urgency,
-                    "priority": proposal.priority,
-                    "category": proposal.category,
-                    "flags": proposal.flags,
-                    "engine": proposal.engine,
-                },
-            }, ensure_ascii=False)
-            return self.judge.chat_json(system, user, temperature=0.0)  # type: ignore[union-attr]
-        except LLMError:
-            return None
 
     def _adjudicate(self, email: ParsedEmail, proposal: Classification, judge_data: dict) -> Classification | None:
         try:
@@ -183,13 +165,15 @@ class Classifier:
         confidence = judge_data.get("confidence")
         if not isinstance(confidence, (int, float)):
             confidence = min(proposal.confidence, 0.5)
+        if not judge_data.get("calibrated"):
+            confidence = min(float(confidence), 0.65)  # uncalibrated chat judges get capped
         return Classification(
             sentiment=sentiment if sentiment in SENTIMENTS else proposal.sentiment,
             urgency=urgency if urgency in URGENCIES else proposal.urgency,
             priority=priority if priority in PRIORITIES else proposal.priority,
             priority_score=proposal.priority_score,
             category=proposal.category,
-            confidence=round(min(float(confidence), 0.65), 2),
+            confidence=round(min(float(confidence), 1.0), 2),
             reasoning=(
                 f"{proposal.reasoning} | judge override ({str(judge_data.get('reason', ''))[:120]}): "
                 f"{proposal.sentiment}/{proposal.urgency}/{proposal.priority} -> "
