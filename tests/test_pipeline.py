@@ -19,11 +19,30 @@ SAMPLES = ROOT / "data" / "sample_emails"
 GEN = ROOT / "data" / "generated_batch" / "emails"
 NOW = datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc)  # Monday 09:00 UTC
 
+_ISOLATED_KEYS = (
+    "EMAIL_AGENT_LLM", "EMAIL_AGENT_MODEL", "EMAIL_AGENT_API_KEY", "EMAIL_AGENT_BASE_URL",
+    "EMAIL_AGENT_JUDGE_LLM", "EMAIL_AGENT_JUDGE_API", "EMAIL_AGENT_JUDGE_BASE_URL",
+    "EMAIL_AGENT_JUDGE_API_KEY", "EMAIL_AGENT_JUDGE_MODEL", "EMAIL_AGENT_REFINE_MODE",
+    "EMAIL_AGENT_ENV_FILE", "OPENAI_API_KEY", "OPENCODE_API_KEY",
+)
+
 
 class PipelineTests(unittest.TestCase):
     def setUp(self) -> None:
+        # never touch a developer's real .env or ambient keys: the pipeline must run offline here
+        self._saved_env = {key: os.environ.get(key) for key in _ISOLATED_KEYS}
+        for key in _ISOLATED_KEYS:
+            os.environ.pop(key, None)
+        os.environ["EMAIL_AGENT_ENV_FILE"] = str(Path(__file__).resolve().parent / ".no-env-file")
         self.settings = load_settings(None)
         self.orch = Orchestrator(self.settings, repo=None, logger=None)
+
+    def tearDown(self) -> None:
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
     def test_legal_threat_end_to_end(self) -> None:
         state = self.orch.process(parse_file(SAMPLES / "001_angry_refund_legal_threat.eml"), now=NOW)

@@ -40,6 +40,30 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def load_dotenv(path: Path | None = None) -> dict[str, str]:
+    """Minimal `.env` loader (stdlib only). Real environment variables always win.
+
+    Handles `KEY=VALUE`, comments (`#` full-line or trailing ` #`), quoted values, CRLF and blanks.
+    """
+    env_path = path or project_root() / ".env"
+    applied: dict[str, str] = {}
+    if not env_path.exists():
+        return applied
+    for raw_line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.split(" #", 1)[0].strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+            applied[key] = value
+    return applied
+
+
 def load_rules(path: Path | None = None) -> dict[str, Any]:
     rules_path = path or project_root() / "config" / "rules.json"
     with rules_path.open(encoding="utf-8") as fh:
@@ -48,14 +72,19 @@ def load_rules(path: Path | None = None) -> dict[str, Any]:
 
 def load_settings(args: Any | None = None) -> Settings:
     root = project_root()
+    # `.env` keys are applied unless already exported; EMAIL_AGENT_ENV_FILE overrides the path
+    # (point it at a non-existent file to disable .env loading entirely, e.g. in tests/CI).
+    env_override = os.environ.get("EMAIL_AGENT_ENV_FILE")
+    load_dotenv(Path(env_override) if env_override else root / ".env")
     rules = load_rules()
-    llm_provider = getattr(args, "llm", None) or os.environ.get("EMAIL_AGENT_LLM", "none")
+    llm_provider = getattr(args, "llm", None) or os.environ.get("EMAIL_AGENT_LLM", "none") or "none"
     api_key = os.environ.get("EMAIL_AGENT_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
     if llm_provider != "none" and not api_key:
         llm_provider = "none"  # any provider (openai / jev / gateway name) needs a key
     judge_provider = (
         getattr(args, "judge", None)
         or os.environ.get("EMAIL_AGENT_JUDGE_LLM", os.environ.get("EMAIL_AGENT_JUDGE", "none"))
+        or "none"
     )
     judge_base_url = os.environ.get("EMAIL_AGENT_JUDGE_BASE_URL") or DEFAULT_JUDGE_BASE_URL
     judge_api_key = (

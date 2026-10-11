@@ -36,8 +36,10 @@ ENV_KEYS = (
     "EMAIL_AGENT_LLM", "EMAIL_AGENT_MODEL", "EMAIL_AGENT_API_KEY", "EMAIL_AGENT_BASE_URL",
     "EMAIL_AGENT_JUDGE_LLM", "EMAIL_AGENT_JUDGE_API", "EMAIL_AGENT_JUDGE_BASE_URL",
     "EMAIL_AGENT_JUDGE_API_KEY", "EMAIL_AGENT_JUDGE_MODEL", "EMAIL_AGENT_REFINE_MODE",
-    "OPENAI_API_KEY", "OPENCODE_API_KEY",
+    "EMAIL_AGENT_ENV_FILE", "OPENAI_API_KEY", "OPENCODE_API_KEY",
 )
+# tests must never read a developer's real .env (keys, gateways) - point the loader at a missing file
+NO_ENV_FILE = str(Path(__file__).resolve().parent / ".no-env-file")
 
 
 class _MockState:
@@ -114,6 +116,7 @@ class _ServerFixture(unittest.TestCase):
         self._saved_env = {key: os.environ.get(key) for key in ENV_KEYS}
         for key in ENV_KEYS:
             os.environ.pop(key, None)
+        os.environ["EMAIL_AGENT_ENV_FILE"] = NO_ENV_FILE  # ignore any real .env
         self.state.responses.clear()
         self.state.requests.clear()
         self.state.systemone_responses.clear()
