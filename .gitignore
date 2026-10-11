@@ -9,3 +9,6 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Runtime state (SQLite database + JSONL logs)
+storage/

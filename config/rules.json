@@ -1,0 +1,72 @@
+{
+  "version": "0.1.0",
+  "_comment": "Pinned scales and policies (delivers scorecard P0-2: the 06-Rules formula now has concrete units).",
+  "scales": {
+    "urgency_base": { "low": 2.5, "medium": 5.5, "high": 7.0, "critical": 9.0 },
+    "sentiment_weight": { "positive": 1.0, "neutral": 3.0, "negative": 6.5, "angry": 8.5 },
+    "customer_tier": { "standard": 2.0, "vip": 2.0 }
+  },
+  "_tier_note": "VIP is modelled as a +1 score boost (docs 06-Rules signal table); the tier scale is kept uniform so VIP is not double-counted.",
+  "boosts": {
+    "legal_threat": 3.0,
+    "refund_request": 2.0,
+    "outage": 2.0,
+    "delivery_delay": 2.0,
+    "multi_issue": 2.0,
+    "repeat_contact": 2.0,
+    "deadline_pressure": 1.5,
+    "damage_claim": 1.5,
+    "vip": 1.0,
+    "cap_total": 2.0
+  },
+  "bands": { "Critical": 8.0, "High": 6.0, "Medium": 4.0, "Low": 0.0 },
+  "force_priority": {
+    "legal_threat": "Critical",
+    "spam": "Low",
+    "_note": "policy overrides applied after banding: legal threats are always Critical; spam is always Low"
+  },
+  "urgency_floor": {
+    "legal_threat": "critical",
+    "outage": "critical",
+    "chargeback_risk": "high",
+    "delivery_delay": "high",
+    "repeat_contact": "high",
+    "multi_issue": "high",
+    "cancellation": "high",
+    "refund_request": "medium",
+    "damage_claim": "medium",
+    "deadline_pressure": "medium",
+    "invoice_request": "medium",
+    "non_english": "medium",
+    "prompt_injection_attempt": "medium",
+    "missing_info": "low",
+    "spam": "low",
+    "policy_exception_request": "low",
+    "low_priority_language": "low"
+  },
+  "thresholds": {
+    "human_review_confidence": 0.65,
+    "max_rewrite_loops": 2,
+    "min_classification_confidence": 0.4
+  },
+  "scheduling": {
+    "critical_hours": 1,
+    "high_hours": 4,
+    "medium_hours": 24,
+    "business_hours": "09:00-18:00",
+    "business_days": [0, 1, 2, 3, 4],
+    "timezone": "Asia/Kolkata",
+    "critical_ignores_business_hours": true,
+    "_critical_note": "Resolves the 06-Rules conflict for outages/legal threats: never defer a critical to the next business morning."
+  },
+  "tone": {
+    "angry": "calm_deescalating",
+    "negative": "empathetic_professional",
+    "neutral": "clear_helpful",
+    "positive": "warm_concise"
+  },
+  "signature": {
+    "name": "Aurora Support",
+    "company": "Aurora Electronics"
+  }
+}

@@ -1,0 +1,16 @@
+[project]
+name = "email-agent"
+version = "0.1.0"
+description = "Agentic AI for email automation (Quantanite assignment POC)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+email-agent = "email_agent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

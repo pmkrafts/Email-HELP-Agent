@@ -1,0 +1,7 @@
+# Runtime dependencies: none. The core pipeline is stdlib-only (Python 3.11+).
+#
+# Optional convenience install (adds the `email-agent` console script):
+#   pip install -e .
+#
+# Optional LLM refinement (never required): set OPENAI_API_KEY and EMAIL_AGENT_LLM=openai
+# (see .env.example). The provider seam lives in src/email_agent/llm.py.
