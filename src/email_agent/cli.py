@@ -147,6 +147,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:  # Windows consoles default to cp1252; never crash on subjects with emoji/accents
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

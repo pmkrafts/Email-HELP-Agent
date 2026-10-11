@@ -11,6 +11,12 @@ Status: working POC (assignment scope, 3 days). Zero third-party dependencies â€
 ## Quick start (no install, no API key)
 
 ```bash
+python run.py                     # one command: tests -> pipeline -> agreement eval
+```
+
+or drive the CLI directly:
+
+```bash
 python --version                                            # 3.11+
 python email-agent.py run --input data/sample_emails --now 2026-10-12T09:00:00+00:00
 python email-agent.py run --input data/batch_100            # 100-email batch (~0.5 s offline)
@@ -19,6 +25,8 @@ python email-agent.py summary
 python email-agent.py eval --show-misses                    # score against all labelled batches
 python -m unittest discover -s tests                        # 33 tests
 ```
+
+See [HOW-TO-RUN.md](HOW-TO-RUN.md) for the full guide (options, troubleshooting, expected output).
 
 `pip install -e .` exposes the same commands as `email-agent`.
 
