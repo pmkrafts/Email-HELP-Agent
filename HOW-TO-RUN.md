@@ -72,7 +72,25 @@ the scheduled send time.
 
 `pip install -e .` turns these into `email-agent …` if you prefer.
 
-## 3. Optional model tiers (rules → judge → primary)
+## 3. The Streamlit UI
+
+```bash
+pip install streamlit        # optional dependency, install once
+streamlit run ui/app.py      # http://localhost:8501
+```
+
+In the sidebar pick a batch (12 / 20 / 100 bundled emails, or upload your own `.eml`/`.txt`),
+choose the model tiers (**Rules only** is free and offline; **GPT refinement** / **GPT + JEV judge**
+use the keys from `.env`), then press **Run pipeline**.
+
+The screen then shows: metrics (priority mix, both average confidences, scheduled/junk/escalated,
+judge verdicts) · an expander mapping every assignment requirement to where it is answered ·
+a priority-sorted, filterable table · and per-email tabs for the **incoming email**,
+**classification** (priority/sentiment/urgency/confidence/signals/reasoning), **retrieved context
+(RAG)**, **draft response**, **review & schedule** (`send_at` + reason; nothing is transmitted)
+and the **agent trace** (per-stage status and latency). Results export as JSON with one click.
+
+## 4. Optional model tiers (rules → judge → primary)
 
 The classifier is a cost ladder; every tier has a fallback to the one below it:
 
@@ -116,7 +134,7 @@ per email; a judge outage degrades to the tier below instead of failing the batc
 behaviour is covered by `tests/test_judge.py` against a local mock server — no key needed.
 The client (`src/email_agent/llm.py`) speaks the OpenAI-compatible chat-completions API with JSON mode.
 
-## 4. Tests and data verification
+## 5. Tests and data verification
 
 ```bash
 python -m unittest discover -s tests       # 33 tests: parser edge cases, rules, end-to-end
@@ -124,7 +142,7 @@ python data/verify_batch.py data/batch_100     # deterministic gates on the labe
 python data/verify_batch.py data/generated_batch
 ```
 
-## 5. Artifacts
+## 6. Artifacts
 
 | Path | Contents |
 |---|---|
@@ -133,7 +151,7 @@ python data/verify_batch.py data/generated_batch
 
 Both are always recreated by `run.py` (fresh database each run) and are gitignored.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Fix |
 |---|---|

@@ -82,6 +82,28 @@ detection, so payload text cannot influence priority; the attempt itself is flag
 recall 0.89 on batch_100. Confidence-floor compliance is 50–65% — the rules engine is deliberately
 more conservative than the label authors' expectations (see the local scorecard for the gap list).
 
+## UI (Streamlit review console)
+
+```bash
+pip install streamlit          # optional; the app is a thin layer over the same pipeline
+streamlit run ui/app.py        # opens http://localhost:8501
+```
+
+What the console shows — one screen, six tabs per email:
+
+| Area | Contents |
+|---|---|
+| Sidebar | batch selector (12 / 20 / 100 bundled emails or your own `.eml`/`.txt` upload), **model-tier switch** (rules-only · GPT refinement · GPT + JEV judge), refine-mode control, tier status (which keys are present), run button |
+| Metrics row | emails processed + failures, Critical+High vs Medium/Low, avg classification & draft confidence, scheduled / junk / escalated, judge verdict counts |
+| Requirement panel | an expander mapping every assignment bullet to the UI element that answers it (`REQUIREMENTS_COVERAGE` in `src/email_agent/report.py`) |
+| Table | priority-sorted, filterable by priority / sentiment / review status + free-text search; columns include both confidences, review state, dispatch time, engine and judge verdict |
+| Tabs per email | **Incoming email** (headers, parser notes) · **Classification** (priority, score, sentiment, urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** (chunks with scores) · **Draft response** (text, confidence, tone, language, citations) · **Review & schedule** (agent issues, `send_at`, business-hours reason, "nothing is sent" notice) · **Agent trace** (per-stage status + latency) |
+| Export | one-click JSON download of the full report |
+
+The UI is a view layer only: `src/email_agent/report.py` builds the view-model (stdlib, unit-tested),
+and the app calls the same `Orchestrator` as the CLI. Headless rendering is covered by
+`tests/test_ui_app.py` using Streamlit's `AppTest`.
+
 ## Model routing — JEV + GPT together
 
 The pipeline is a cost ladder: premium spend scales with the *disagreement rate*, not with volume.

@@ -5,3 +5,7 @@
 #
 # Optional LLM refinement (never required): set OPENAI_API_KEY and EMAIL_AGENT_LLM=openai
 # (see .env.example). The provider seam lives in src/email_agent/llm.py.
+
+# Optional UI (Streamlit review console):
+#   pip install streamlit
+#   streamlit run ui/app.py
