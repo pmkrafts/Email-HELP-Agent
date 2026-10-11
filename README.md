@@ -23,7 +23,7 @@ python email-agent.py run --input data/batch_100            # 100-email batch (~
 python email-agent.py view --priority Critical
 python email-agent.py summary
 python email-agent.py eval --show-misses                    # score against all labelled batches
-python -m unittest discover -s tests                        # 33 tests
+python -m unittest discover -s tests                        # 61 tests
 ```
 
 See [HOW-TO-RUN.md](HOW-TO-RUN.md) for the full guide (options, troubleshooting, expected output).
