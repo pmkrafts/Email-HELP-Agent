@@ -128,13 +128,6 @@ urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** 
 status and latency). Results export as JSON with one click. After changing a source file, press
 **R** in the browser (or refresh) to rerun the app.
 
-The look follows the project design system (`ui/design.py`, `.streamlit/config.toml`): warm paper
-canvas, one blue accent for the primary action, white hairline cards, Inter with tight display
-tracking, sticker-palette dots for status. **Light and dark themes are both mapped** — switch with
-the app menu (⋮ → Settings → Theme: System / Light / Dark); the dark polarity uses the indigo night
-canvas and a lightened accent from the same blue family. `tests/test_ui_design.py` keeps the UI
-on-spec in both polarities.
-
 ## 4. Model tiers (rules → judge → primary)
 
 ```
@@ -208,7 +201,6 @@ Runtime state is gitignored; `run.py` recreates its database on every run.
 | Symptom | Fix |
 |---|---|
 | `python3` opens the Microsoft Store | Use `python` (or `run.bat`); `run.sh` already probes interpreters itself |
-| UI looks light/dark unexpectedly | The app follows your browser/OS preference; override it in the app menu (⋮ → Settings → Theme) |
 | `input directory not found` | Run from the repo root, or pass `--input <absolute path>` |
 | `no text and no html body` in UI parser notes | Expected for the deliberately empty sample; other files should parse cleanly |
 | `judge: error` on an email | Run `python email-agent.py check`; the classification reasoning carries the HTTP reason. Cloudflare's `403 / error 1010` (bare Python User-Agent) is fixed in the client — if it reappears, the key or base URL is wrong |
