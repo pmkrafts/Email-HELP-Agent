@@ -128,6 +128,10 @@ urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** 
 status and latency). Results export as JSON with one click. After changing a source file, press
 **R** in the browser (or refresh) to rerun the app.
 
+The look follows the project design system (`ui/design.py`, `.streamlit/config.toml`): warm paper
+canvas, one blue accent for the primary action, white hairline cards, Inter with tight display
+tracking, sticker-palette dots for status. `tests/test_ui_design.py` keeps the UI on-spec.
+
 ## 4. Model tiers (rules → judge → primary)
 
 ```

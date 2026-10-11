@@ -1,0 +1,16 @@
+# Streamlit theme mapped to the project design system.
+# The single structural accent is the blue primary; the canvas is the warm paper tone and every
+# card/field sits on pure white. Widget internals (radios, checkboxes, sliders, tabs, selections)
+# take these colours natively, so the hand-written CSS only has to handle type, radii and chrome.
+[theme]
+primaryColor = "#0075de"              # the one structural accent (CTA, active/focus signal)
+backgroundColor = "#f6f5f4"           # warm paper-soft canvas
+secondaryBackgroundColor = "#ffffff"  # cards, fields, sidebar
+textColor = "#31302e"                 # warm charcoal body; ink headings come from CSS
+font = "sans serif"                   # Inter is loaded by the app's stylesheet
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

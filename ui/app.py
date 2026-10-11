@@ -21,9 +21,11 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # ui/ helpers
 
 from email_agent.config import load_settings  # noqa: E402
 from email_agent.report import REQUIREMENTS_COVERAGE, build_report  # noqa: E402
+from design import COLORS, build_css, chip, dot  # noqa: E402
 
 BATCHES = {
     "Golden set — 12 hand-written emails": ROOT / "data" / "sample_emails",
@@ -31,15 +33,10 @@ BATCHES = {
     "Generated batch — 100 emails": ROOT / "data" / "batch_100",
 }
 TIERS = ["Rules only (offline, free)", "GPT refinement", "GPT + JEV judge"]
-PRIORITY_COLOURS = {"Critical": "#d64545", "High": "#e08c2a", "Medium": "#b8a51f", "Low": "#3f8f4f"}
-REVIEW_COLOURS = {"approved": "#3f8f4f", "needs_revision": "#e08c2a", "escalate": "#d64545"}
-
-
-def badge(text: str, colour: str) -> str:
-    return (
-        f"<span style='background:{colour}20;border:1px solid {colour};color:{colour};"
-        f"border-radius:6px;padding:1px 8px;font-size:0.85rem;font-weight:600'>{text}</span>"
-    )
+HERO_STICKERS = (
+    COLORS["accent_purple"], COLORS["accent_pink"], COLORS["accent_orange"],
+    COLORS["accent_teal"], COLORS["accent_green"], COLORS["accent_sky"],
+)
 
 
 def fmt_time(iso: str | None) -> str:
@@ -52,14 +49,15 @@ def fmt_time(iso: str | None) -> str:
 
 
 def apply_tier(tier: str, refine_mode: str) -> None:
-    """Translate the sidebar choice into environment overrides, then load settings."""
-    for key in ("EMAIL_AGENT_LLM", "EMAIL_AGENT_JUDGE_LLM", "EMAIL_AGENT_REFINE_MODE"):
-        os.environ.pop(key, None)
-    if tier in ("GPT refinement", "GPT + JEV judge"):
-        os.environ["EMAIL_AGENT_LLM"] = "openai"
-        os.environ["EMAIL_AGENT_REFINE_MODE"] = refine_mode
-    if tier == "GPT + JEV judge":
-        os.environ["EMAIL_AGENT_JUDGE_LLM"] = "jev"
+    """Translate the sidebar choice into environment overrides, then load settings.
+
+    Values are set explicitly (not just popped) because real environment variables win over
+    `.env` — otherwise a `.env` judge key would silently re-enable the judge while the UI says
+    "Rules only".
+    """
+    os.environ["EMAIL_AGENT_LLM"] = "none" if tier == TIERS[0] else "openai"
+    os.environ["EMAIL_AGENT_JUDGE_LLM"] = "jev" if tier == TIERS[2] else "none"
+    os.environ["EMAIL_AGENT_REFINE_MODE"] = refine_mode
 
 
 def sidebar() -> dict:
@@ -131,34 +129,36 @@ def sidebar() -> dict:
 
 def metrics(report: dict) -> None:
     summary = report["summary"]
-    rows = report["rows"]
     by_priority = summary.get("by_priority", {})
     critical_high = by_priority.get("Critical", 0) + by_priority.get("High", 0)
     judge = summary.get("judge_verdicts") or {}
-    cols = st.columns(6)
-    cols[0].metric("Emails processed", summary.get("processed", 0), f"{summary.get('failed', 0)} failed")
-    cols[1].metric("Critical + High", critical_high,
-                   f"{by_priority.get('Medium', 0)} medium / {by_priority.get('Low', 0)} low")
     class_conf = summary.get("avg_classification_confidence")
     draft_conf = summary.get("avg_draft_confidence")
-    cols[2].metric("Avg classification confidence", f"{class_conf:.2f}" if class_conf else "—")
-    cols[3].metric("Avg draft confidence", f"{draft_conf:.2f}" if draft_conf else "—")
-    scheduled = (summary.get("schedule_status") or {}).get("scheduled", 0)
-    cols[4].metric("Scheduled", scheduled,
-                   f"junk {(summary.get('schedule_status') or {}).get('junk', 0)} / "
-                   f"escalated {(summary.get('schedule_status') or {}).get('escalated', 0)}")
+    schedules = summary.get("schedule_status") or {}
+
+    top = st.columns(3)
+    top[0].metric("Emails processed", summary.get("processed", 0), f"{summary.get('failed', 0)} failed",
+                  delta_color="off")
+    top[1].metric("Critical + High", critical_high,
+                  f"{by_priority.get('Medium', 0)} medium · {by_priority.get('Low', 0)} low", delta_color="off")
+    top[2].metric("Classification confidence", f"{class_conf:.2f}" if class_conf else "—")
+
+    bottom = st.columns(3)
+    bottom[0].metric("Draft confidence", f"{draft_conf:.2f}" if draft_conf else "—")
+    bottom[1].metric("Scheduled", schedules.get("scheduled", 0),
+                     f"junk {schedules.get('junk', 0)} · pending {schedules.get('pending_human', 0)}",
+                     delta_color="off")
     if judge:
         agreed = judge.get("agreed", 0)
-        escalated = sum(v for k, v in judge.items() if k != "agreed")
-        cols[5].metric("Judge verdicts", f"{agreed} agreed", f"{escalated} escalated")
+        escalated = sum(count for verdict, count in judge.items() if verdict != "agreed")
+        bottom[2].metric("Judge verdicts", f"{agreed} agreed", f"{escalated} escalated", delta_color="off")
     else:
-        cols[5].metric("Judge verdicts", "—", "judge tier off")
+        bottom[2].metric("Judge verdicts", "—", "judge tier off")
 
-    if not rows:
-        return
-    human = [row for row in rows if row["review_status"] in {"needs_revision", "escalate"}]
-    if human:
-        st.info(f"{len(human)} email(s) need a human: " + ", ".join(f"`{row['file']}`" for row in human[:6]))
+    if report["rows"]:
+        human = [row for row in report["rows"] if row["review_status"] in {"needs_revision", "escalate"}]
+        if human:
+            st.info(f"{len(human)} email(s) need a human: " + ", ".join(f"`{row['file']}`" for row in human[:6]))
 
 
 def requirements_panel() -> None:
@@ -215,12 +215,14 @@ def detail(row: dict) -> None:
     priority = row["priority"]
     review = row["review_status"]
     chips = (
-        f"{badge(priority, PRIORITY_COLOURS.get(priority, '#888888'))} "
-        f"{badge(row['sentiment'], '#4a6fa5')} {badge(row['urgency'], '#6b4fa5')} "
-        f"{badge(f'review: {review}', REVIEW_COLOURS.get(review, '#888888'))}"
+        chip(priority, dot("priority", priority))
+        + chip(row["sentiment"], dot("sentiment", row["sentiment"]))
+        + chip(row["urgency"], dot("urgency", row["urgency"]))
+        + chip(f"review: {review}", dot("review", review))
+        + chip(f"dispatch: {row['schedule_status']}", dot("review", row["schedule_status"]))
     )
     if row["judge_verdict"]:
-        chips += f" {badge('judge: ' + row['judge_verdict'], '#3f8f4f')}"
+        chips += chip(f"judge: {row['judge_verdict']}", dot("judge", row["judge_verdict"]))
     st.markdown(chips, unsafe_allow_html=True)
     tabs = st.tabs(["Incoming email", "Classification", "Retrieved context (RAG)", "Draft response",
                     "Review & schedule", "Agent trace"])
@@ -291,11 +293,22 @@ def detail(row: dict) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Email-HELP-Agent", layout="wide")
+    st.markdown(build_css(), unsafe_allow_html=True)
     controls = sidebar()
 
-    st.title("Incoming email batch → prioritized drafts")
-    st.caption("Classifier → retrieval → drafter → reviewer → scheduler, with confidence scores "
-               "at every step. Dispatch times are recorded; nothing is sent.")
+    stickers = "".join(f"<span style='background:{colour}'></span>" for colour in HERO_STICKERS)
+    st.markdown(
+        f"""
+        <div class="hero-band">
+          <h1>Incoming email batch → prioritized drafts</h1>
+          <p>Classifier → retrieval → drafter → reviewer → scheduler, with confidence scores at every
+          step. Dispatch times are recorded; nothing is sent.</p>
+          <div class="hero-stickers">{stickers}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write("")
 
     if controls["run"] and controls["input_dir"]:
         with st.spinner(f"Processing {controls['label']} in {controls['tier']} mode…"):

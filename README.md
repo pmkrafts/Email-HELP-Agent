@@ -104,6 +104,15 @@ The UI is a view layer only: `src/email_agent/report.py` builds the view-model (
 and the app calls the same `Orchestrator` as the CLI. Headless rendering is covered by
 `tests/test_ui_app.py` using Streamlit's `AppTest`.
 
+**Visual system** (`ui/design.py` + `.streamlit/config.toml`): a warm paper-soft canvas (`#f6f5f4`)
+under pure-white cards; near-black Inter with tight negative tracking on display sizes; exactly one
+structural accent — blue `#0075de` — reserved for the primary CTA and active/focus signals, mapped
+through Streamlit's theme so widget internals follow it too; a decorative-only sticker palette that
+appears as small category dots on white chips, never as a fill; 12px cards, 8px utility buttons,
+pill CTAs, 4px inputs, hairline borders with barely-there layered shadows; and a single deep-indigo
+`#213183` hero band. `tests/test_ui_design.py` pins the tokens and the theme mapping so the UI
+cannot drift from the spec.
+
 ## Model routing — JEV + GPT together
 
 The pipeline is a cost ladder: premium spend scales with the *disagreement rate*, not with volume.
