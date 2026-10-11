@@ -1,6 +1,7 @@
 """End-to-end pipeline tests on real sample files (temp SQLite, no LLM)."""
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
