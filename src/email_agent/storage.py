@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS classifications (
     email_id INTEGER REFERENCES emails(id),
     sentiment TEXT, urgency TEXT, priority TEXT, priority_score REAL,
     category TEXT, confidence REAL, reasoning TEXT, flags TEXT, engine TEXT,
+    judge_verdict TEXT,
     created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS drafts (
@@ -66,7 +67,14 @@ class Repository:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was first created."""
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(classifications)")}
+        if "judge_verdict" not in columns:
+            self.conn.execute("ALTER TABLE classifications ADD COLUMN judge_verdict TEXT")
 
     def close(self) -> None:
         self.conn.close()
@@ -103,10 +111,10 @@ class Repository:
         if state.classification:
             c = state.classification
             self.conn.execute(
-                "INSERT INTO classifications (email_id, sentiment, urgency, priority, priority_score, category, confidence, reasoning, flags, engine, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO classifications (email_id, sentiment, urgency, priority, priority_score, category, confidence, reasoning, flags, engine, judge_verdict, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (email_id, c.sentiment, c.urgency, c.priority, c.priority_score, c.category, c.confidence, c.reasoning,
-                 json.dumps(c.flags), c.engine, _now()),
+                 json.dumps(c.flags), c.engine, c.judge_verdict, _now()),
             )
 
         draft_id = None
@@ -141,8 +149,8 @@ class Repository:
     def rows_for_view(self, priority: str | None = None, limit: int | None = None) -> list[dict]:
         sql = (
             "SELECT e.message_id, e.subject, e.from_address, c.priority, c.priority_score, c.sentiment, c.urgency,"
-            " c.confidence, c.flags, d.draft_text, d.confidence AS draft_confidence, r.status AS review_status,"
-            " s.send_at, s.status AS schedule_status"
+            " c.confidence, c.flags, c.engine, c.judge_verdict, d.draft_text, d.confidence AS draft_confidence,"
+            " r.status AS review_status, s.send_at, s.status AS schedule_status"
             " FROM emails e"
             " LEFT JOIN classifications c ON c.email_id = e.id"
             " LEFT JOIN drafts d ON d.email_id = e.id"

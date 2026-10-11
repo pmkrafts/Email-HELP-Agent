@@ -74,15 +74,25 @@ class Orchestrator:
                 start = time.perf_counter()
                 state.review = self.reviewer.run(state)
                 attempts = 1
-                while state.review.status == "needs_revision" and attempts < self.settings.max_rewrites:
+                can_revise = getattr(self.drafter, "client", None) is not None  # template drafter cannot rewrite
+                while (
+                    can_revise
+                    and state.review.status == "needs_revision"
+                    and attempts < self.settings.max_rewrites
+                ):
                     feedback = state.review.suggested_changes or "; ".join(state.review.issues)
                     state.log("reviewer", "revision_requested", attempt=attempts, issues=state.review.issues)
                     state.draft = self.drafter.run(state, feedback=feedback)
                     state.review = self.reviewer.run(state)
                     attempts += 1
                 if state.review.status == "needs_revision":
-                    state.review.status = "escalate"
-                    state.review.issues.append("max rewrite attempts reached; escalated to human review")
+                    if can_revise:
+                        state.review.status = "escalate"
+                        state.review.issues.append("max rewrite attempts reached; escalated to human review")
+                    else:
+                        state.review.issues.append(
+                            "offline template drafter cannot auto-revise; enable the GPT tier or edit the draft manually"
+                        )
                 state.status = "reviewed"
                 state.log("reviewer", "completed", latency_ms=_ms(start),
                           status=state.review.status, attempts=attempts, issues=state.review.issues)

@@ -91,8 +91,13 @@ def sidebar() -> dict:
             help="escalations_only reserves GPT classification calls for judge disagreements",
         )
     st.sidebar.divider()
-    limit = st.sidebar.slider("Max emails in this run", 1, 120, 25,
-                              help="keeps UI runs fast; the batch processed is shown above")
+    whole_batch = st.sidebar.checkbox("Process the entire batch", value=True,
+                                      help="Uncheck to cap the run; LLM tiers bill per email")
+    limit = None
+    if not whole_batch:
+        limit = st.sidebar.slider("Max emails in this run", 1, 120, 10)
+    if tier != TIERS[0]:
+        st.sidebar.caption("LLM tiers bill per email: rules ~0 calls, GPT ~3, JEV ~1-2 cheap calls.")
     run = st.sidebar.button("Run pipeline", type="primary")
 
     apply_tier(tier, refine_mode)
@@ -197,6 +202,7 @@ def table(rows: list[dict]) -> None:
                 "Scheduled": fmt_time(row["send_at"]),
                 "Engine": row["engine"],
                 "Judge": row["judge_verdict"] or "—",
+                "Draft preview": " ".join((row["draft_text"] or "(no draft)").split())[:160],
             }
             for row in rows
         ],
@@ -240,6 +246,9 @@ def detail(row: dict) -> None:
             st.markdown("**Signals detected:** " + " ".join(f"`{flag}`" for flag in row["flags"]))
         st.markdown("**Scoring reasoning**")
         st.code(row["reasoning"] or "—", language=None)
+        if row["judge_verdict"] == "error":
+            st.warning("The judge channel could not be reached for this email — the rules baseline "
+                       "was kept. Check the endpoint/key with `python email-agent.py check`.")
 
     with tabs[2]:
         if not row["context"]:
@@ -313,12 +322,38 @@ def main() -> None:
 
     st.divider()
     rows = filters(report["rows"])
-    st.caption(f"{len(rows)} of {len(report['rows'])} emails shown")
-    table(rows)
-    if rows:
-        labels = [f"{row['file']} — {row['subject'][:70]}" for row in rows]
-        selected = st.selectbox("Inspect an email", labels)
-        detail(rows[labels.index(selected)])
+    st.caption(f"{len(rows)} of {len(report['rows'])} emails shown (batch: {report['input_dir']})")
+    view = st.radio("View", ["Table + inspector", "All emails (full content)", "Drafts only"],
+                    horizontal=True, label_visibility="collapsed")
+
+    if view == "Table + inspector":
+        table(rows)
+        if rows:
+            labels = [f"{row['file']} — {row['subject'][:70]}" for row in rows]
+            selected = st.selectbox("Inspect an email", labels)
+            detail(rows[labels.index(selected)])
+    elif view == "All emails (full content)":
+        st.caption("Every matching email with classification, retrieved context, draft, review and trace.")
+        for row in rows:
+            conf = f" — conf {row['confidence']:.2f}" if row["confidence"] else ""
+            with st.expander(f"{row['priority']} · {row['subject']}{conf}", expanded=len(rows) <= 3):
+                detail(row)
+    else:
+        drafted = [row for row in rows if row["draft_text"]]
+        st.caption(f"{len(drafted)} drafted repl{'y' if len(drafted) == 1 else 'ies'} "
+                   f"(spam/junk emails have no draft by design)")
+        for row in drafted:
+            with st.expander(f"{row['priority']} · {row['subject']} — draft conf {row['draft_confidence']:.2f}",
+                             expanded=False):
+                st.markdown(f"**To:** {row['from_name'] or ''} <{row['from_address']}> · "
+                            f"**review:** `{row['review_status']}` · **send:** {fmt_time(row['send_at'])}")
+                st.text_area("Draft reply", row["draft_text"], height=260, disabled=True,
+                             key=f"draft_{row['file']}")
+                st.caption("Citations: " + (", ".join(f"`{c}`" for c in row["draft_citations"]) or "—")
+                           + f" · tone `{row['draft_tone']}` · language `{row['draft_language']}`")
+                if row["review_issues"]:
+                    st.caption("Review issues: " + "; ".join(row["review_issues"]))
+
     st.download_button("Download results (JSON)", json.dumps(report["rows"], indent=2, ensure_ascii=False),
                        file_name="email_agent_results.json", mime="application/json")
     st.divider()

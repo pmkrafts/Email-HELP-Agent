@@ -80,6 +80,8 @@ class Classifier:
         data = self.judge.verdict(email, proposal)
         if data is None:
             proposal.judge_verdict = "error"
+            reason = getattr(self.judge, "last_error", None) or "no usable response"
+            proposal.reasoning = f"{proposal.reasoning} | judge: unavailable ({str(reason)[:180]})"
             return proposal
         if bool(data.get("agree", True)):
             proposal.judge_verdict = "agreed"
@@ -95,6 +97,16 @@ class Classifier:
 
         corrected = self._apply_judge_correction(proposal, data)
         if corrected is not None:
+            if (corrected.sentiment, corrected.urgency, corrected.priority) == (
+                proposal.sentiment, proposal.urgency, proposal.priority
+            ):
+                # the judge's alternative labels are the same as the proposal -> no real disagreement
+                proposal.judge_verdict = "agreed"
+                proposal.reasoning = (
+                    f"{proposal.reasoning} | judge: alternative labels match the proposal "
+                    f"({str(data.get('reason', ''))[:120]})"
+                )
+                return proposal
             corrected.judge_verdict = "overridden"
             return corrected
         proposal.judge_verdict = "agreed"  # judge disagreed but returned nothing usable

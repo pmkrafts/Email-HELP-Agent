@@ -15,7 +15,15 @@ class Scheduler:
     def run(self, state: AgentState, now: datetime) -> ScheduleDecision:
         assert state.classification is not None
         junk = "spam" in state.classification.flags
-        escalated = bool(state.review and state.review.status == "escalate")
+        review_status = state.review.status if state.review else None
+        if review_status == "needs_revision":
+            # a draft the review agent wants changed must not get an automatic dispatch time
+            return ScheduleDecision(
+                send_at=None,
+                reason="human review required before dispatch (draft flagged needs_revision)",
+                status="pending_human",
+            )
+        escalated = review_status == "escalate"
         send_at, reason, status = decide_schedule(
             state.classification.priority, now, self.settings.rules, escalated=escalated, junk=junk
         )

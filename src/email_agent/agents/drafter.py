@@ -43,12 +43,50 @@ NEXT_STEP = {
         "de": "Beschädigte oder defekte Artikel werden gemäß unserer Rückgaberichtlinie ersetzt oder erstattet; Rückerstattungen erfolgen innerhalb von 5-7 Werktagen nach der Prüfung.",
         "fr": "Les articles endommagés ou défectueux sont remplacés ou remboursés selon notre politique de retour ; les remboursements sont émis sous 5 à 7 jours ouvrés après inspection.",
     },
+    "account": {
+        "en": "Request a fresh reset link (it stays valid for 30 minutes) and check the spam folder; if it still does not arrive, reply with your registered email and last order number so we can verify and reset it manually.",
+        "es": "Solicite un nuevo enlace de restablecimiento (válido 30 minutos) y revise la carpeta de spam; si no llega, responda con su correo registrado y el número de su último pedido para verificarlo y restablecerlo manualmente.",
+        "de": "Fordern Sie einen neuen Link an (gültig 30 Minuten) und prüfen Sie den Spam-Ordner; falls er nicht ankommt, antworten Sie mit Ihrer registrierten E-Mail und der letzten Bestellnummer, damit wir manuell zurücksetzen können.",
+        "fr": "Demandez un nouveau lien (valable 30 minutes) et vérifiez les spams ; s'il n'arrive pas, répondez avec votre e-mail enregistré et votre dernier numéro de commande pour une réinitialisation manuelle.",
+    },
+    "sales": {
+        "en": "I am confirming the specification and availability with our product team and will come back with a concrete answer so you can order with confidence.",
+        "es": "Estoy confirmando la especificación y la disponibilidad con nuestro equipo de producto y le responderé con una respuesta concreta para que pueda comprar con confianza.",
+        "de": "Ich bestätige die Spezifikation und Verfügbarkeit mit unserem Produktteam und melde mich mit einer konkreten Antwort, damit Sie sicher bestellen können.",
+        "fr": "Je confirme la spécification et la disponibilité auprès de notre équipe produit et reviendrai vers vous avec une réponse précise pour commander en toute confiance.",
+    },
+    "feedback": {
+        "en": "I have shared your kind words with the team and logged your suggestion for review.",
+    },
+    "technical": {
+        "en": "I am passing this to our technical team now and will update you as soon as we have a status, including any workaround in the meantime.",
+    },
+    "complaint": {
+        "en": "I am taking ownership of this case, will check the history, and will come back with a concrete plan and date rather than another holding reply.",
+    },
+    "other": {
+        "en": "I am checking this for you now and will follow up with the specific information or action required.",
+    },
+    "spam": {"en": "No reply is required for this message."},
+}
+DEFAULT_NEXT_STEP = {
+    "en": "We are reviewing this and will come back to you with a concrete next step.",
+    "es": "Estamos revisando su caso y le responderemos con un paso siguiente concreto.",
+    "de": "Wir prüfen Ihren Fall und melden uns mit einem konkreten nächsten Schritt.",
+    "fr": "Nous examinons votre demande et reviendrons vers vous avec une prochaine étape concrète.",
 }
 CLOSING = {
     "en": "Would you like me to proceed on that basis? If anything is unclear, reply to this email and I will pick it up directly.",
     "es": "¿Desea que procedamos así? Si algo no está claro, responda a este correo y lo atenderé personalmente.",
     "de": "Sollen wir so verfahren? Falls etwas unklar ist, antworten Sie auf diese E-Mail und ich kümmere mich direkt darum.",
     "fr": "Souhaitez-vous que nous procédions ainsi ? Si quelque chose n'est pas clair, répondez à cet e-mail et je m'en occuperai personnellement.",
+}
+# Praise and pure feedback need a different close: "shall we proceed?" makes no sense there.
+POSITIVE_CLOSING = {
+    "en": "No action is needed from you - thank you again for taking the time to write.",
+    "es": "No es necesario que haga nada: gracias de nuevo por tomarse el tiempo de escribirnos.",
+    "de": "Sie müssen nichts weiter tun - vielen Dank, dass Sie sich die Zeit genommen haben.",
+    "fr": "Aucune action n'est nécessaire de votre part - merci encore de nous avoir écrit.",
 }
 
 
@@ -82,14 +120,16 @@ class Drafter:
             facts.append("We understand the timing matters and we are treating this as time-sensitive.")
         if "attachment_reference" in classification.flags and "missing_attachment" not in classification.flags:
             facts.append("Please keep the photos you mentioned available in case we ask for them.")
-        steps = NEXT_STEP.get(classification.category, NEXT_STEP["returns"])[language]
+        step_table = NEXT_STEP.get(classification.category, {})
+        steps = step_table.get(language) or step_table.get("en") or DEFAULT_NEXT_STEP[language]
         body_lines = [greeting, "", THANKS[language]]
         if facts:
             body_lines.append(" ".join(facts))
         body_lines.append(steps)
         if feedback:
             body_lines.append(f"Following the review: {feedback}")
-        body_lines.append(CLOSING[language])
+        closing = POSITIVE_CLOSING[language] if (classification.category == "feedback" or classification.sentiment == "positive") else CLOSING[language]
+        body_lines.append(closing)
         body_lines.append("")
         body_lines.append(f"{rules['signature']['name']} · {rules['signature']['company']}")
 

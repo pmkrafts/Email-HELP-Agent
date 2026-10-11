@@ -104,5 +104,37 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(status, "escalated")
 
 
+class SchedulerAgentTests(unittest.TestCase):
+    """A draft the review agent wants changed must never get an automatic dispatch time."""
+
+    def _state(self, review_status: str):
+        from email_agent.config import load_settings
+        from email_agent.models import AgentState, Classification, ParsedEmail, ReviewResult
+
+        email = ParsedEmail(message_id="t", from_address="a@example.com", from_name=None, to_addresses=[],
+                            subject="Test", body_text="body", date=None, raw_path="t.eml", source_format="eml")
+        state = AgentState(email=email)
+        state.classification = Classification(sentiment="negative", urgency="high", priority="High",
+                                              priority_score=7.0, category="shipping", confidence=0.8, reasoning="t")
+        state.review = ReviewResult(status=review_status, issues=[], final_confidence=0.5)  # type: ignore[arg-type]
+        return load_settings(None), state
+
+    def test_needs_revision_becomes_pending_human(self) -> None:
+        from email_agent.agents.scheduler import Scheduler
+
+        settings, state = self._state("needs_revision")
+        decision = Scheduler(settings).run(state, datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc))
+        self.assertEqual(decision.status, "pending_human")
+        self.assertIsNone(decision.send_at)
+
+    def test_approved_is_scheduled(self) -> None:
+        from email_agent.agents.scheduler import Scheduler
+
+        settings, state = self._state("approved")
+        decision = Scheduler(settings).run(state, datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc))
+        self.assertEqual(decision.status, "scheduled")
+        self.assertIsNotNone(decision.send_at)
+
+
 if __name__ == "__main__":
     unittest.main()

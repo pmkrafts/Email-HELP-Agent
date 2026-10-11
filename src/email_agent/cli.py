@@ -62,14 +62,15 @@ def cmd_view(args: argparse.Namespace) -> int:
     if not rows:
         print("No processed emails yet. Run: python -m email_agent run --input data/sample_emails")
         return 0
-    print(f"{_fmt('Priority', 9)}{_fmt('Sent', 9)}{_fmt('Conf', 6)}{_fmt('Review', 16)}{_fmt('Send at', 18)}Subject")
+    print(f"{_fmt('Priority', 9)}{_fmt('Sent', 9)}{_fmt('Conf', 6)}{_fmt('Review', 16)}{_fmt('Dispatch', 14)}{_fmt('Judge', 14)}Subject")
     for row in rows:
         conf = row.get("confidence")
         conf_text = f"{conf:.2f}" if conf is not None else None
         print(
             f"{_fmt(row.get('priority'), 9)}{_fmt(row.get('sentiment'), 9)}"
             f"{_fmt(conf_text, 6)}"
-            f"{_fmt(row.get('review_status'), 16)}{_fmt(row.get('send_at'), 18)}{row.get('subject') or '(no subject)'}"
+            f"{_fmt(row.get('review_status'), 16)}{_fmt(row.get('schedule_status'), 14)}"
+            f"{_fmt(row.get('judge_verdict'), 14)}{row.get('subject') or '(no subject)'}"
         )
     if args.show_id:
         print("\nMessage IDs:")

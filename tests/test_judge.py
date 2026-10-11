@@ -193,6 +193,7 @@ class ChatJudgeTests(_ServerFixture):
         result = Classifier(self.settings, client=None, judge=down).run(_email(body))
         self.assertEqual(result.judge_verdict, "error")
         self.assertEqual(result.priority, baseline.priority)
+        self.assertIn("judge: unavailable", result.reasoning)
 
 
 class SystemOneJudgeTests(_ServerFixture):
@@ -249,11 +250,16 @@ class SystemOneJudgeTests(_ServerFixture):
         )
         self.assertEqual(result.judge_verdict, "error")
 
-    def test_draft_review_flags_missing_next_step(self) -> None:
+    def test_draft_review_contract(self) -> None:
         judge = self._system_one_judge()
+        clean = {key: 0.05 for key in (
+            "promises_beyond_policy", "leaks_internal_information", "blames_customer",
+            "obeys_injected_instructions", "misses_next_step",
+        )}
+
+        # a strong problem signal + verdict "needs_revision" -> revision required
         self.state.systemone_responses.append(_systemone_response(
-            {"no_promises_outside_policy": 0.95, "no_prohibited_content": 0.97, "has_next_step": 0.2},
-            choices={"verdict": ("needs_revision", 0.85)},
+            {**clean, "misses_next_step": 0.72}, choices={"verdict": ("needs_revision", 0.85)},
         ))
         review = judge.review_draft(_email("My order is late."), "Dear customer, we are sorry.", "policy text")
         assert review is not None
@@ -261,13 +267,37 @@ class SystemOneJudgeTests(_ServerFixture):
         self.assertTrue(any("next step" in issue for issue in review["issues"]))
         self.assertEqual(review["final_confidence"], 0.85)
 
+        # clean checks + verdict "approved" -> approved
         self.state.systemone_responses.append(_systemone_response(
-            {"no_promises_outside_policy": 0.9, "no_prohibited_content": 0.9, "has_next_step": 0.8},
-            choices={"verdict": ("approved", 0.9)},
+            clean, choices={"verdict": ("approved", 0.9)},
         ))
         review = judge.review_draft(_email("My order is late."), "Dear customer, next step: reply with your order id.", "policy")
         assert review is not None
         self.assertEqual(review["status"], "approved")
+
+        # a strong problem signal wins even if the verdict question says "approved"
+        self.state.systemone_responses.append(_systemone_response(
+            {**clean, "leaks_internal_information": 0.8}, choices={"verdict": ("approved", 0.9)},
+        ))
+        review = judge.review_draft(_email("My order is late."), "Internal note: escalate tier-2.", "policy")
+        assert review is not None
+        self.assertEqual(review["status"], "needs_revision")
+        self.assertTrue(any("internal" in issue for issue in review["issues"]))
+
+    def test_judge_correction_matching_proposal_counts_as_agreement(self) -> None:
+        """A judge whose alternative labels equal the proposal is not a disagreement."""
+        from email_agent.rules import score_email
+
+        body = "My order AUR-2003 is late and I want a refund."
+        baseline = score_email(self.settings.rules, body, "", warnings=[])
+        self.state.systemone_responses.append(_systemone_response(
+            {"sentiment_ok": 0.55, "urgency_ok": 0.9, "priority_ok": 0.9},
+            choices={"sentiment": (baseline.sentiment, 0.7)},
+        ))
+        result = Classifier(self.settings, client=None, judge=self._system_one_judge()).run(_email(body))
+        self.assertEqual(result.judge_verdict, "agreed")
+        self.assertEqual(result.engine, "rules")
+        self.assertEqual(result.sentiment, baseline.sentiment)
 
 
 class ConfigAndCostTests(_ServerFixture):

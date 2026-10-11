@@ -46,7 +46,10 @@ class UiSmokeTests(unittest.TestCase):
         self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
         self.assertTrue(any("Run pipeline" in button.label for button in app.sidebar.button))
 
-        # keep the run small, then press the button
+        # full batch by default now (checkbox pre-checked) - keep this run small anyway
+        whole_batch = next(box for box in app.sidebar.checkbox if "entire batch" in box.label)
+        whole_batch.set_value(False)
+        app.run()
         app.sidebar.slider[0].set_value(2)
         run_button = next(button for button in app.sidebar.button if "Run pipeline" in button.label)
         run_button.click()
@@ -57,6 +60,16 @@ class UiSmokeTests(unittest.TestCase):
         self.assertEqual(report["summary"]["processed"], 2)
         self.assertEqual(report["mode"]["primary"], "none")  # rules-only default tier
         self.assertTrue(report["rows"][0]["subject"])
+
+        # every view must render, including the full-content and drafts-only modes
+        for view in ("All emails (full content)", "Drafts only", "Table + inspector"):
+            view_radio = next(radio for radio in app.radio if radio.label == "View")
+            view_radio.set_value(view)
+            app.run()
+            self.assertFalse(list(app.exception), f"{view}: {[str(e.value) for e in app.exception]}")
+            expanders = getattr(app, "expander", None)
+            if view != "Table + inspector" and expanders is not None:
+                self.assertGreaterEqual(len(expanders), 1)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,15 @@ class LLMError(RuntimeError):
     pass
 
 
+# Gateways behind Cloudflare reject Python's default "Python-urllib/3.x" signature (HTTP 403,
+# Cloudflare error 1010), so every request carries an explicit product identity.
+CLIENT_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": "email-agent/0.1 (+https://github.com/pmkrafts/Email-HELP-Agent)",
+}
+
+
 @dataclass
 class LLMClient:
     api_key: str
@@ -40,10 +49,7 @@ class LLMClient:
         request = urllib.request.Request(
             f"{self.base_url.rstrip('/')}/chat/completions",
             data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
+            headers={**CLIENT_HEADERS, "Authorization": f"Bearer {self.api_key}"},
             method="POST",
         )
         last_error: Exception | None = None
@@ -82,7 +88,7 @@ class SystemOneClient:
         request = urllib.request.Request(
             f"{self.base_url.rstrip('/')}/systemone",
             data=body,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"},
+            headers={**CLIENT_HEADERS, "Authorization": f"Bearer {self.api_key}"},
             method="POST",
         )
         last_error: Exception | None = None
