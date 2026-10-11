@@ -72,16 +72,32 @@ the scheduled send time.
 
 `pip install -e .` turns these into `email-agent …` if you prefer.
 
-## 3. Optional LLM mode
+## 3. Optional model tiers (rules → judge → primary)
 
-```bash
-cp .env.example .env          # then set OPENAI_API_KEY=... and EMAIL_AGENT_LLM=openai
-python run.py --with-llm
+The classifier is a cost ladder; every tier has a fallback to the one below it:
+
+```
+Tier 0  rules engine            always on, zero tokens   (the mode all numbers above were produced in)
+Tier 1  primary model           optional refinement      (premium quality per email)
+Tier 2  judge channel ("JEV")   optional verification    (cheap model reviews the proposal)
 ```
 
-Without a key the project silently stays in deterministic rules mode — that is the mode all
-numbers above were produced in. The client (`src/email_agent/llm.py`) uses the OpenAI-compatible
-chat-completions API with JSON mode and retries.
+| Mode | Enable with | Behaviour |
+|---|---|---|
+| Rules only (default) | — | nothing to configure |
+| Primary refinement | `OPENAI_API_KEY` + `--with-llm` | every email refined by the premium model |
+| **Judge / JEV** | `EMAIL_AGENT_JUDGE_BASE_URL` + `_API_KEY` + `--with-judge` | cheap model reviews each proposal; agreement keeps the cheap path, disagreement routes **that single email** to the primary model (or applies the judge's correction when no primary is set) |
+| Primary + judge | both flags | premium output is verified; the extra premium call happens only on disputes |
+
+```bash
+cp .env.example .env      # set the judge block (any OpenAI-compatible endpoint works)
+python run.py --with-judge
+```
+
+Judge verdicts are reported per batch (`agreed` / `overridden` / `adjudicated` / `error`) and logged
+per email; a judge outage degrades to the tier below instead of failing the batch. Endpoint
+behaviour is covered by `tests/test_judge.py` against a local mock server — no key needed.
+The client (`src/email_agent/llm.py`) speaks the OpenAI-compatible chat-completions API with JSON mode.
 
 ## 4. Tests and data verification
 

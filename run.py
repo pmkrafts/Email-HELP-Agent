@@ -46,7 +46,7 @@ def _run_tests() -> bool:
     return proc.returncode == 0
 
 
-def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool) -> tuple[object, dict]:
+def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool, with_judge: bool = False) -> tuple[object, dict]:
     from email_agent.analytics import RunLogger, batch_summary
     from email_agent.config import load_settings
     from email_agent.orchestrator import Orchestrator
@@ -54,12 +54,16 @@ def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool)
 
     if db_path.exists():
         db_path.unlink()
+    if with_judge:
+        os.environ.setdefault("EMAIL_AGENT_JUDGE_LLM", "jev")
     settings = load_settings(None)
     if with_llm:
         os.environ["EMAIL_AGENT_LLM"] = "openai"
         settings = load_settings(None)
         if settings.llm_provider != "openai":
             print("      note: OPENAI_API_KEY not set - falling back to deterministic rules mode")
+    if with_judge and settings.judge_provider == "none":
+        print("      note: judge channel not configured - falling back to deterministic rules mode")
     repo = Repository(db_path)
     logger = RunLogger(ROOT / "storage" / "logs")
     orchestrator = Orchestrator(settings, repo, logger)
@@ -67,9 +71,11 @@ def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool)
     summary = batch_summary(states, failures)
     repo.close()
 
-    _say("3/4", f"Pipeline: {args_label(batch_dir)} (mode: {settings.llm_provider})")
+    _say("3/4", f"Pipeline: {args_label(batch_dir)} (mode: {settings.llm_provider} | judge: {settings.judge_provider})")
     print(f"      processed {summary['processed']}  failed {summary['failed']}  "
           f"priorities {summary['by_priority']}")
+    if summary.get("judge_verdicts"):
+        print(f"      judge verdicts {summary['judge_verdicts']}")
     print(f"      reviews {summary['review_status']}  schedules {summary['schedule_status']}")
     print(f"      avg confidence: classification {summary['avg_classification_confidence']} "
           f"/ draft {summary['avg_draft_confidence']}")
@@ -123,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch", choices=sorted(BATCHES), default="samples", help="which bundled batch to process")
     parser.add_argument("--input", help="custom input directory (overrides --batch)")
     parser.add_argument("--with-llm", action="store_true", help="enable OpenAI refinement (needs OPENAI_API_KEY)")
+    parser.add_argument("--with-judge", action="store_true",
+                        help="enable the cheap judge channel (needs EMAIL_AGENT_JUDGE_BASE_URL/_API_KEY)")
     parser.add_argument("--now", help="ISO timestamp used as the scheduling clock")
     parser.add_argument("--db", help="SQLite path (default: storage/run-demo.db)")
     parser.add_argument("--skip-tests", action="store_true")
@@ -147,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     if not results["tests"]:
         print("      tests FAILED - fix them before trusting the pipeline output")
 
-    (_, pipeline_ok), summary = _run_pipeline(batch_dir, Path(args.db) if args.db else ROOT / "storage" / "run-demo.db", now, args.with_llm)  # noqa: E501
+    (_, pipeline_ok), summary = _run_pipeline(batch_dir, Path(args.db) if args.db else ROOT / "storage" / "run-demo.db", now, args.with_llm, args.with_judge)  # noqa: E501
     results["pipeline"] = pipeline_ok
 
     results["eval"] = True if args.skip_eval else _run_eval(batch_dir, now)

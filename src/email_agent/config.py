@@ -17,10 +17,14 @@ class Settings:
     db_path: Path
     rules: dict[str, Any]
     prompts_dir: Path
-    llm_provider: str = "none"  # none | openai
+    llm_provider: str = "none"  # none | openai (primary/refinement model)
     llm_model: str = DEFAULT_MODEL
     llm_base_url: str = DEFAULT_BASE_URL
     llm_api_key: str = field(default="", repr=False)
+    judge_provider: str = "none"  # none | jev | any OpenAI-compatible endpoint
+    judge_model: str = ""
+    judge_base_url: str = ""
+    judge_api_key: str = field(default="", repr=False)
     max_rewrites: int = 2
 
     @property
@@ -45,6 +49,14 @@ def load_settings(args: Any | None = None) -> Settings:
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if llm_provider == "openai" and not api_key:
         llm_provider = "none"
+    judge_provider = (
+        getattr(args, "judge", None)
+        or os.environ.get("EMAIL_AGENT_JUDGE_LLM", os.environ.get("EMAIL_AGENT_JUDGE", "none"))
+    )
+    judge_base_url = os.environ.get("EMAIL_AGENT_JUDGE_BASE_URL", "")
+    judge_api_key = os.environ.get("EMAIL_AGENT_JUDGE_API_KEY", "")
+    if judge_provider != "none" and not (judge_base_url and judge_api_key):
+        judge_provider = "none"  # judge needs an endpoint + key; silently stays off otherwise
     settings = Settings(
         root=root,
         db_path=Path(getattr(args, "db", None) or root / "storage" / "agent.db"),
@@ -54,6 +66,10 @@ def load_settings(args: Any | None = None) -> Settings:
         llm_model=os.environ.get("EMAIL_AGENT_MODEL", DEFAULT_MODEL),
         llm_base_url=os.environ.get("EMAIL_AGENT_BASE_URL", DEFAULT_BASE_URL),
         llm_api_key=api_key,
+        judge_provider=judge_provider,
+        judge_model=os.environ.get("EMAIL_AGENT_JUDGE_MODEL", ""),
+        judge_base_url=judge_base_url,
+        judge_api_key=judge_api_key,
         max_rewrites=int(rules["thresholds"]["max_rewrite_loops"]),
     )
     return settings

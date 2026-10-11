@@ -53,6 +53,7 @@ class Classification:
     reasoning: str
     flags: list[str] = field(default_factory=list)
     engine: str = "rules"  # rules | llm | rules+llm
+    judge_verdict: str | None = None  # None | agreed | overridden | adjudicated | error
 
 
 @dataclass

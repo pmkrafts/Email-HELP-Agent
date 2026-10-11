@@ -41,6 +41,12 @@ def batch_summary(states: list[AgentState], failures: list[tuple[str, str]]) -> 
     def avg(values: list[float]) -> float | None:
         return round(sum(values) / len(values), 3) if values else None
 
+    judge_counts: dict[str, int] = {}
+    for state in states:
+        verdict = state.classification.judge_verdict if state.classification else None
+        if verdict:
+            judge_counts[verdict] = judge_counts.get(verdict, 0) + 1
+
     return {
         "processed": len(states),
         "failed": len(failures),
@@ -49,5 +55,6 @@ def batch_summary(states: list[AgentState], failures: list[tuple[str, str]]) -> 
         "schedule_status": schedule_status,
         "avg_classification_confidence": avg(class_conf),
         "avg_draft_confidence": avg(draft_conf),
+        "judge_verdicts": judge_counts,
         "failures": failures,
     }

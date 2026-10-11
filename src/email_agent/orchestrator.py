@@ -16,7 +16,7 @@ from .agents.reviewer import Reviewer
 from .agents.scheduler import Scheduler
 from .analytics import RunLogger
 from .config import Settings
-from .llm import LLMClient, get_client
+from .llm import LLMClient, get_client, get_judge_client
 from .models import AgentState, ParsedEmail
 from .parser import parse_dir
 from .retrieval import KnowledgeBase
@@ -36,7 +36,10 @@ class Orchestrator:
         client: LLMClient | None = get_client(
             settings.llm_provider, settings.llm_api_key, settings.llm_model, settings.llm_base_url
         )
-        self.classifier = Classifier(settings, client)
+        judge: LLMClient | None = get_judge_client(
+            settings.judge_provider, settings.judge_api_key, settings.judge_model, settings.judge_base_url
+        )
+        self.classifier = Classifier(settings, client, judge)
         self.drafter = Drafter(settings, self.kb, client)
         self.reviewer = Reviewer(settings, client)
         self.scheduler = Scheduler(settings)
@@ -50,7 +53,8 @@ class Orchestrator:
             state.status = "classified"
             state.log("classifier", "completed", latency_ms=_ms(start),
                       priority=state.classification.priority, confidence=state.classification.confidence,
-                      engine=state.classification.engine, flags=state.classification.flags)
+                      engine=state.classification.engine, flags=state.classification.flags,
+                      judge=state.classification.judge_verdict)
 
             if "spam" in state.classification.flags:
                 state.schedule = self.scheduler.run(state, now)

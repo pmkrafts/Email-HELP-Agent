@@ -82,16 +82,26 @@ detection, so payload text cannot influence priority; the attempt itself is flag
 recall 0.89 on batch_100. Confidence-floor compliance is 50–65% — the rules engine is deliberately
 more conservative than the label authors' expectations (see the local scorecard for the gap list).
 
-## Optional LLM refinement
+## Model routing (rules → judge → primary)
+
+The classifier is deliberately tiered so premium spend scales with *disagreement rate*, not volume:
+
+| Tier | Engine | When it runs | Cost profile |
+|---|---|---|---|
+| 0 | deterministic rules | always | zero tokens — this is the default and how the accuracy numbers above were achieved |
+| 1 | primary model (OpenAI etc.) | `--with-llm` | one premium call per email |
+| 2 | judge channel — **JEV** or any cheap OpenAI-compatible endpoint | `--with-judge` | one cheap call per email; on disagreement, *only that email* is escalated to the primary model for adjudication (or the judge's correction is applied when no primary is set) |
 
 ```bash
-cp .env.example .env      # set OPENAI_API_KEY, EMAIL_AGENT_LLM=openai
-python email-agent.py --llm openai run --input data/sample_emails
+cp .env.example .env      # set EMAIL_AGENT_JUDGE_BASE_URL / _API_KEY / _MODEL to point at JEV
+python run.py --with-judge
 ```
 
-`src/email_agent/llm.py` is a stdlib OpenAI-compatible client (JSON mode, retries, backoff) with the
-prompt templates in `config/prompts/`. Refinement changes sentiment/urgency/priority/category only;
-the deterministic rules remain the fallback on any provider error.
+Every tier degrades safely: a judge outage leaves the rules baseline untouched (`judge=error`),
+and validity is enforced on all judge output. Batch summaries report
+`agreed / overridden / adjudicated / error` counts; behaviour is tested against a mock endpoint in
+`tests/test_judge.py`. Primary refinement uses the OpenAI-compatible client in
+`src/email_agent/llm.py` with JSON mode, retries and backoff.
 
 ## Data & verification
 

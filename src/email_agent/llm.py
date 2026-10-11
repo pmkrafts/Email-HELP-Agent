@@ -72,3 +72,14 @@ def get_client(provider: str, api_key: str, model: str, base_url: str) -> LLMCli
     if provider == "openai" and api_key:
         return LLMClient(api_key=api_key, model=model, base_url=base_url)
     return None
+
+
+def get_judge_client(provider: str, api_key: str, model: str, base_url: str) -> LLMClient | None:
+    """JEV / cheap-judge channel: any OpenAI-compatible endpoint (JEV, local model, cheap API tier).
+
+    Kept deliberately separate from the primary client so the two tiers can differ in provider,
+    model and key — the whole point of the cost ladder.
+    """
+    if provider and provider != "none" and api_key and base_url:
+        return LLMClient(api_key=api_key, model=model or "jev", base_url=base_url, max_retries=1, timeout=20.0)
+    return None
