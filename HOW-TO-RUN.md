@@ -121,6 +121,7 @@ pending_human, judge verdicts) · a requirement-coverage expander · filters · 
 | `Table + inspector` | all emails in one sortable table (includes a draft preview column) plus a detail panel for the selected email |
 | `All emails (full content)` | every matching email rendered in sequence — each expander holds all six sections, nothing hidden behind a selection |
 | `Drafts only` | every drafted reply in full, with confidence, tone, language, citations and review issues |
+| `Dispatch schedule` | the dispatch plan grouped by bucket — **scheduled** (sorted by send time, with the next dispatch at the top), **pending human review**, **escalated**, **junk** — each row showing send time, priority, review status, subject, sender and the scheduler's reason |
 
 Per email the six tabs are: **Incoming email** · **Classification** (priority, score, sentiment,
 urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** · **Draft response** ·

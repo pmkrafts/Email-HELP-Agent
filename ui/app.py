@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from email_agent.config import load_settings  # noqa: E402
-from email_agent.report import REQUIREMENTS_COVERAGE, build_report  # noqa: E402
+from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
 
 BATCHES = {
     "Golden set — 12 hand-written emails": ROOT / "data" / "sample_emails",
@@ -173,6 +173,53 @@ def requirements_panel() -> None:
         ])
 
 
+def schedule_view(rows: list[dict]) -> None:
+    """The dispatch plan, grouped by bucket and ordered by send time."""
+    summary = {}
+    for row in rows:
+        summary[row["schedule_status"]] = summary.get(row["schedule_status"], 0) + 1
+    next_send = min((row["send_at"] for row in rows if row["send_at"]), default=None)
+    st.caption(
+        "Recorded dispatch plan — nothing is transmitted. "
+        f"{summary.get('scheduled', 0)} scheduled"
+        + (f" (next: {fmt_time(next_send)})" if next_send else "")
+        + f" · {summary.get('pending_human', 0)} pending human"
+        + f" · {summary.get('escalated', 0)} escalated"
+        + f" · {summary.get('junk', 0)} junk. "
+        "Buckets follow the scheduler rules: critical within 1 h, high within 4 h or same business "
+        "day, medium within 24 h, low next business day; business hours Mon–Fri 09:00–18:00."
+    )
+    buckets = [
+        ("scheduled", "Scheduled for dispatch"),
+        ("pending_human", "Pending human review (no dispatch time yet)"),
+        ("escalated", "Escalated to a human (no automatic reply)"),
+        ("junk", "Junk (no reply drafted)"),
+    ]
+    for status, title in buckets:
+        group = [row for row in rows if row["schedule_status"] == status]
+        if not group:
+            continue
+        if status == "scheduled":
+            group = sorted(group, key=lambda row: row["send_at"] or "")
+        else:
+            group = sorted(group, key=lambda row: (PRIORITY_ORDER.get(row["priority"], 9)))
+        st.subheader(f"{title} — {len(group)}")
+        st.dataframe(
+            [
+                {
+                    "Send at": fmt_time(row["send_at"]) if row["send_at"] else "—",
+                    "Priority": row["priority"],
+                    "Review": row["review_status"],
+                    "Subject": row["subject"],
+                    "From": row["from_address"],
+                    "Why": row["schedule_reason"],
+                }
+                for row in group
+            ],
+            hide_index=True,
+        )
+
+
 def filters(rows: list[dict]) -> list[dict]:
     columns = st.columns([1, 1, 1, 2])
     priorities = columns[0].multiselect("Priority", ["Critical", "High", "Medium", "Low"],
@@ -203,7 +250,7 @@ def table(rows: list[dict]) -> None:
                 "Class conf": row["confidence"],
                 "Draft conf": row["draft_confidence"],
                 "Review": row["review_status"],
-                "Scheduled": fmt_time(row["send_at"]),
+                "Dispatch": fmt_time(row["send_at"]) if row["send_at"] else row["schedule_status"],
                 "Engine": row["engine"],
                 "Judge": row["judge_verdict"] or "—",
                 "Draft preview": " ".join((row["draft_text"] or "(no draft)").split())[:160],
@@ -327,7 +374,7 @@ def main() -> None:
     st.divider()
     rows = filters(report["rows"])
     st.caption(f"{len(rows)} of {len(report['rows'])} emails shown (batch: {report['input_dir']})")
-    view = st.radio("View", ["Table + inspector", "All emails (full content)", "Drafts only"],
+    view = st.radio("View", ["Table + inspector", "All emails (full content)", "Drafts only", "Dispatch schedule"],
                     horizontal=True, label_visibility="collapsed")
 
     if view == "Table + inspector":
@@ -336,6 +383,8 @@ def main() -> None:
             labels = [f"{row['file']} — {row['subject'][:70]}" for row in rows]
             selected = st.selectbox("Inspect an email", labels)
             detail(rows[labels.index(selected)])
+    elif view == "Dispatch schedule":
+        schedule_view(rows)
     elif view == "All emails (full content)":
         st.caption("Every matching email with classification, retrieved context, draft, review and trace.")
         for row in rows:

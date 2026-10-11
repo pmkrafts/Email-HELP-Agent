@@ -96,7 +96,8 @@ What the console shows — one screen, six tabs per email:
 | Sidebar | batch selector (12 / 20 / 100 bundled emails or your own `.eml`/`.txt` upload), **model-tier switch** (rules-only · GPT refinement · GPT + JEV judge), refine-mode control, tier status (which keys are present), run button |
 | Metrics row | emails processed + failures, Critical+High vs Medium/Low, avg classification & draft confidence, scheduled / junk / escalated, judge verdict counts |
 | Requirement panel | an expander mapping every assignment bullet to the UI element that answers it (`REQUIREMENTS_COVERAGE` in `src/email_agent/report.py`) |
-| Table | priority-sorted, filterable by priority / sentiment / review status + free-text search; columns include both confidences, review state, dispatch time, engine and judge verdict |
+| Table | priority-sorted, filterable by priority / sentiment / review status + free-text search; columns include both confidences, review state, **dispatch (send time or status)**, engine and judge verdict |
+| Schedule view | the dispatch plan grouped by bucket — scheduled (ordered by send time), pending human review, escalated, junk — with counts, the next dispatch time and the scheduler's reason per row |
 | Tabs per email | **Incoming email** (headers, parser notes) · **Classification** (priority, score, sentiment, urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** (chunks with scores) · **Draft response** (text, confidence, tone, language, citations) · **Review & schedule** (agent issues, `send_at`, business-hours reason, "nothing is sent" notice) · **Agent trace** (per-stage status + latency) |
 | Export | one-click JSON download of the full report |
 

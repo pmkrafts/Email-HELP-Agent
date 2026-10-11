@@ -61,8 +61,8 @@ class UiSmokeTests(unittest.TestCase):
         self.assertEqual(report["mode"]["primary"], "none")  # rules-only default tier
         self.assertTrue(report["rows"][0]["subject"])
 
-        # every view must render, including the full-content and drafts-only modes
-        for view in ("All emails (full content)", "Drafts only", "Table + inspector"):
+        # every view must render, including the full-content, drafts-only and schedule modes
+        for view in ("All emails (full content)", "Drafts only", "Dispatch schedule", "Table + inspector"):
             view_radio = next(radio for radio in app.radio if radio.label == "View")
             view_radio.set_value(view)
             app.run()
