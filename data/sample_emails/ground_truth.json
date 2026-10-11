@@ -1,0 +1,217 @@
+{
+  "_meta": {
+    "description": "Ground truth for the synthetic sample batch (golden set) used to evaluate the pipeline.",
+    "generated": "2026-10-10",
+    "source": "synthetic - no real customer data",
+    "domains": "RFC 2606 reserved only: example.com, example.net, example.org, aurora-electronics.example, meridian-corp.example",
+    "reference": "Labels follow docs 04-Test.md (scenarios, golden set, key points) and 06-Rules.md (priority bands, boosts, scheduling).",
+    "calendar": "2026-10-09 is a Friday and 2026-10-10 is a Saturday, so the evening and weekend emails also exercise the business-hours scheduling rule (next business morning = Monday 2026-10-12).",
+    "field_guide": {
+      "sentiment": "positive | neutral | negative | angry",
+      "urgency": "low | medium | high | critical",
+      "priority": "Low | Medium | High | Critical",
+      "flags": "special signals expected in Classification.flags",
+      "key_points": "facts/actions the draft must cover (04-Test.md section 5)",
+      "schedule_hint": "indicative scheduling outcome per 06-Rules.md section 4"
+    }
+  },
+  "emails": [
+    {
+      "file": "001_angry_refund_legal_threat.eml",
+      "scenario": "angry refund + legal threat (04-Test 3.2 row 1)",
+      "sentiment": "angry",
+      "urgency": "critical",
+      "priority": "Critical",
+      "category": "complaint",
+      "flags": ["legal_threat", "refund_request"],
+      "key_points": [
+        "acknowledge the refund request and the five-day silence",
+        "no promise of refund amount or timeline before policy review",
+        "escalate: legal threat means no final auto-draft (Rules 5)",
+        "give a reference number and a follow-up date"
+      ],
+      "schedule_hint": "critical -> within 1 hour (or immediate queue)",
+      "notes": "Rules boost: legal/threat keywords +3."
+    },
+    {
+      "file": "002_late_order_deadline.eml",
+      "scenario": "late order with deadline (04-Test 3.2 row 2)",
+      "sentiment": "negative",
+      "urgency": "high",
+      "priority": "High",
+      "category": "shipping",
+      "flags": [],
+      "key_points": [
+        "apologise for the delay",
+        "give tracking status and a realistic delivery date or an express replacement",
+        "mention delay compensation eligibility (shipping refund / goodwill credit per policy)",
+        "answer today - the customer needs it for an event"
+      ],
+      "schedule_hint": "high -> within 4 h or same business day; sent 19:45 local, exercises outside-hours handling",
+      "notes": "Boost: 'today' deadline language +2."
+    },
+    {
+      "file": "003_positive_feedback.eml",
+      "scenario": "positive feedback (04-Test 3.2 row 3)",
+      "sentiment": "positive",
+      "urgency": "low",
+      "priority": "Low",
+      "category": "feedback",
+      "flags": [],
+      "key_points": [
+        "thank the customer and acknowledge Sarah by name",
+        "confirm the weekend live-chat suggestion is passed on",
+        "no action required"
+      ],
+      "schedule_hint": "low -> next business day",
+      "notes": "Boost: positive-only -1."
+    },
+    {
+      "file": "004_password_reset.txt",
+      "scenario": "account how-to (04-Test 3.2 row 4), .txt format",
+      "sentiment": "neutral",
+      "urgency": "medium",
+      "priority": "Medium",
+      "category": "account",
+      "flags": [],
+      "key_points": [
+        "explain reset steps and 30-minute link expiry (KB: faq_password_reset)",
+        "suggest spam-folder check",
+        "offer the manual reset path with identity verification",
+        "state that support cannot read or set passwords"
+      ],
+      "schedule_hint": "medium -> within 24 h",
+      "notes": "Exercises the .txt parser branch."
+    },
+    {
+      "file": "005_vip_bulk_order_complaint.eml",
+      "scenario": "VIP + complaint (04-Test 3.2 row 5, golden set: VIP sender)",
+      "sentiment": "negative",
+      "urgency": "high",
+      "priority": "High",
+      "category": "complaint",
+      "flags": ["vip", "invoice_error"],
+      "key_points": [
+        "acknowledge the six-day delay and its commercial impact",
+        "correct invoice IV-2291 (VAT) and route it to the billing team",
+        "give a firm delivery date only if tracking confirms shipment",
+        "route to the account manager given the contract review"
+      ],
+      "schedule_hint": "high -> within 4 h or same business day",
+      "notes": "Boost: VIP/enterprise +1."
+    },
+    {
+      "file": "006_billing_double_charge.eml",
+      "scenario": "billing dispute - duplicate charge",
+      "sentiment": "negative",
+      "urgency": "high",
+      "priority": "High",
+      "category": "billing",
+      "flags": ["refund_request"],
+      "key_points": [
+        "confirm the duplicate-charge investigation",
+        "state the 5-7 business day refund window; no instant-refund promise",
+        "offer the written confirmation letter the bank needs",
+        "reply before 15 Oct if possible"
+      ],
+      "schedule_hint": "high -> within 4 h or same business day; sent Saturday 17:40 -> next business morning (Monday)",
+      "notes": "Boost: refund/chargeback +2."
+    },
+    {
+      "file": "007_vague_inquiry.txt",
+      "scenario": "vague inquiry - missing information (golden set)",
+      "sentiment": "neutral",
+      "urgency": "low",
+      "priority": "Low",
+      "category": "other",
+      "flags": ["missing_info"],
+      "key_points": [
+        "ask for the account email and order number",
+        "do not speculate about the cause",
+        "offer the fastest channel for a reply"
+      ],
+      "schedule_hint": "low -> next business day",
+      "notes": "Review Agent should verify the key missing-information question is actually asked. Corrected 2026-10-11: aligned with the batch_100 vague_short archetype, which labels the identical message Low (an unactionable message with no details is not Medium)."
+    },
+    {
+      "file": "008_multi_issue_order.eml",
+      "scenario": "multi-issue email (golden set)",
+      "sentiment": "negative",
+      "urgency": "high",
+      "priority": "High",
+      "category": "complaint",
+      "flags": ["multi_issue"],
+      "key_points": [
+        "address wrong colour and late delivery first (top 2)",
+        "give a per-issue next step (exchange or compensation)",
+        "note the price discrepancy ($77.99 vs $89.99) as the third item",
+        "explain compensation options without unauthorised promises"
+      ],
+      "schedule_hint": "high -> within 4 h or same business day",
+      "notes": "Rules 5: address top 2 issues, note the rest."
+    },
+    {
+      "file": "009_spam_promotional.eml",
+      "scenario": "spam-like promotional (golden set)",
+      "sentiment": "neutral",
+      "urgency": "low",
+      "priority": "Low",
+      "category": "spam",
+      "flags": ["spam"],
+      "key_points": [
+        "flag as spam / not a customer issue",
+        "no customer reply required - route to junk"
+      ],
+      "schedule_hint": "low -> no customer-facing schedule expected",
+      "notes": "Tests that the pipeline does not draft a customer response for spam."
+    },
+    {
+      "file": "010_empty_subject.eml",
+      "scenario": "parser edge - empty Subject header",
+      "sentiment": "neutral",
+      "urgency": "low",
+      "priority": "Low",
+      "category": "other",
+      "flags": ["missing_info", "empty_subject"],
+      "key_points": [
+        "request the order number or account email",
+        "offer a channel for the callback the sender requested"
+      ],
+      "schedule_hint": "low -> next business day",
+      "notes": "Parser test: empty Subject must not crash the pipeline; body is minimal."
+    },
+    {
+      "file": "011_long_thread_escalation.eml",
+      "scenario": "long body / repeat contact escalation (04-Test 3.1 long body)",
+      "sentiment": "negative",
+      "urgency": "high",
+      "priority": "High",
+      "category": "complaint",
+      "flags": ["escalation", "chargeback_risk"],
+      "key_points": [
+        "acknowledge the three-week timeline and the two broken promises",
+        "give a concrete date or a full-refund decision",
+        "no generic 'looking into it' reply",
+        "handle the chargeback mention carefully - no legal commitments"
+      ],
+      "schedule_hint": "high -> within 4 h or same business day",
+      "notes": "Contains a quoted thread - exercises summarisation/truncation before classification."
+    },
+    {
+      "file": "012_latin1_encoding.eml",
+      "scenario": "parser edge - non-UTF8 (ISO-8859-1) encoding",
+      "sentiment": "negative",
+      "urgency": "medium",
+      "priority": "Medium",
+      "category": "billing",
+      "flags": ["refund_request"],
+      "key_points": [
+        "reply in German (mirror the customer's language)",
+        "explain the return/refund process for the damaged thermometer (order AUR-11190)",
+        "list what is needed for the return"
+      ],
+      "schedule_hint": "medium -> within 24 h; sent Friday 22:05 -> next business morning",
+      "notes": "Headers and body are raw ISO-8859-1 bytes (Joerg Mueller / Rueckerstattung with umlauts). Priority is indicative; main target is decoding. Language mirroring is a quality expectation, not a documented rule."
+    }
+  ]
+}

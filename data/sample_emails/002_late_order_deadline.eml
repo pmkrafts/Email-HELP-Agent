@@ -1,0 +1,39 @@
+From: "Priya Sharma" <priya.sharma@example.net>
+To: support@aurora-electronics.example
+Subject: Order AUR-10310 still not delivered - I needed it last week
+Date: Fri, 09 Oct 2026 19:45:00 +0530
+Message-ID: <20261009.1945.p77@mail.example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b-002"
+
+--b-002
+Content-Type: text/plain; charset="utf-8"
+
+Hi,
+
+I placed order AUR-10310 on 30 September and the confirmation page promised
+delivery by 5 October. It is now the 9th and the tracking page has not moved
+since the parcel reached your warehouse four days ago.
+
+This was supposed to be a birthday gift for my daughter on Tuesday. Can you
+tell me when it will actually arrive, or send a replacement by express
+delivery? I would rather not cancel, but I need an answer today.
+
+Thanks,
+Priya Sharma
+
+--b-002
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p>Hi,</p>
+<p>I placed order <b>AUR-10310</b> on 30 September and the confirmation page
+promised delivery by 5 October. It is now the 9th and the tracking page has
+not moved since the parcel reached your warehouse four days ago.</p>
+<p>This was supposed to be a birthday gift for my daughter on Tuesday. Can you
+tell me when it will actually arrive, or send a replacement by express
+delivery?</p>
+<p>Thanks,<br>Priya Sharma</p>
+</body></html>
+
+--b-002--

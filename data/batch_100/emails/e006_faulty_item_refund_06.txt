@@ -1,0 +1,14 @@
+From: daniel.okafor@example.org
+Subject: Return and refund for order AUR-31005
+Date: 2026-10-13
+---
+Hi Aurora team,
+
+I am writing about order AUR-31005 (blender). The unit is damaged and I have not been able to use it properly at all.
+
+The casing is visibly cracked and one connector is loose, which I assume happened in transit. I paid $319.00 for this and expected better quality control.
+
+Please advise on the return and refund process - I would rather not have to chase this.
+
+Thanks,
+Daniel Okafor

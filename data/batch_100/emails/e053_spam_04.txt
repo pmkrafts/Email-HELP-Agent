@@ -1,0 +1,8 @@
+From: freya.lindqvist@example.net
+Subject: Your payout is waiting - confirm now
+Date: 2026-10-12
+Hi,
+
+Our records show an unclaimed refund on your account. Click the secure link to verify your payment details and receive the amount.
+
+Failure to act will cancel the payout. Reply STOP to unsubscribe.

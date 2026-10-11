@@ -1,0 +1,14 @@
+From: lena.vogt@example.org
+Subject: Invoice copy for order AUR-31020
+Date: 2026-10-15
+---
+Hello,
+
+Could you send me a PDF copy of the invoice for order AUR-31020?
+
+The confirmation email does not show the full tax breakdown, and my accountant cannot process the expense without the proper document.
+
+Could you send the PDF to this address?
+
+Thanks,
+Lena Vogt

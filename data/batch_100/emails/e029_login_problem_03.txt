@@ -1,0 +1,13 @@
+From: freya.lindqvist@example.net
+Subject: Locked out of my account
+Date: 2026-10-12
+Hello,
+
+I cannot sign in to my account - the password I saved does not work any more.
+
+This is blocking me from downloading my invoices and tracking an open order, so I would like it solved quickly.
+
+Please send me the correct steps, or reset it manually from your side.
+
+Best regards,
+Freya Lindqvist
