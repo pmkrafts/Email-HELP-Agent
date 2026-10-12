@@ -101,6 +101,22 @@ python email-agent.py eval --show-misses                   # score all three lab
 
 `pip install -e .` exposes the same commands as `email-agent …`.
 
+### Engines (sequential vs LangGraph)
+
+```bash
+pip install langgraph                                   # or: pip install 'email-agent[graph]'
+python email-agent.py --engine graph run --input data/sample_emails
+python email-agent.py --engine graph graph --out docs/graph.mmd   # export the topology (Mermaid)
+EMAIL_AGENT_GRAPH_CHECKPOINT=1 python email-agent.py --engine graph run --input data/sample_emails
+python run.py --engine graph                            # one-command runner
+```
+
+The default engine is `sequential` (stdlib only). `graph` compiles the identical pipeline as a
+LangGraph `StateGraph` with the same agents, storage and guards; both produce identical results
+(verified on the 100-email batch). Set `EMAIL_AGENT_ENGINE=graph` to make it your default, or pick
+it in the UI sidebar (*Orchestration engine*). Without LangGraph installed, requesting the graph
+engine exits with an install hint instead of failing halfway.
+
 ## 3. The Streamlit UI
 
 ```bash

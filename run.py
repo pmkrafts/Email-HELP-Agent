@@ -46,16 +46,19 @@ def _run_tests() -> bool:
     return proc.returncode == 0
 
 
-def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool, with_judge: bool = False) -> tuple[object, dict]:
+def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool, with_judge: bool = False,
+                  engine: str | None = None) -> tuple[object, dict]:
     from email_agent.analytics import RunLogger, batch_summary
     from email_agent.config import load_settings
-    from email_agent.orchestrator import Orchestrator
+    from email_agent.orchestrator import build_orchestrator
     from email_agent.storage import Repository
 
     if db_path.exists():
         db_path.unlink()
     if with_judge:
         os.environ.setdefault("EMAIL_AGENT_JUDGE_LLM", "jev")
+    if engine:
+        os.environ["EMAIL_AGENT_ENGINE"] = engine
     settings = load_settings(None)
     if with_llm:
         os.environ["EMAIL_AGENT_LLM"] = "openai"
@@ -66,12 +69,16 @@ def _run_pipeline(batch_dir: Path, db_path: Path, now: datetime, with_llm: bool,
         print("      note: judge channel not configured - falling back to deterministic rules mode")
     repo = Repository(db_path)
     logger = RunLogger(ROOT / "storage" / "logs")
-    orchestrator = Orchestrator(settings, repo, logger)
+    try:
+        orchestrator = build_orchestrator(settings, repo, logger)
+    except RuntimeError as exc:
+        print(f"      error: {exc}")
+        return (None, False), {}
     states, failures, skipped = orchestrator.run_batch(batch_dir, now=now)
     summary = batch_summary(states, failures)
     repo.close()
 
-    _say("3/4", f"Pipeline: {args_label(batch_dir)} (mode: {settings.llm_provider} | judge: {settings.judge_provider} | refine: {settings.refine_mode})")
+    _say("3/4", f"Pipeline: {args_label(batch_dir)} (engine: {settings.engine} | mode: {settings.llm_provider} | judge: {settings.judge_provider} | refine: {settings.refine_mode})")
     print(f"      processed {summary['processed']}  failed {summary['failed']}  "
           f"priorities {summary['by_priority']}")
     if summary.get("judge_verdicts"):
@@ -131,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--with-llm", action="store_true", help="enable OpenAI refinement (needs OPENAI_API_KEY)")
     parser.add_argument("--with-judge", action="store_true",
                         help="enable the cheap judge channel (needs EMAIL_AGENT_JUDGE_BASE_URL/_API_KEY)")
+    parser.add_argument("--engine", choices=["sequential", "graph"],
+                        help="orchestration engine: sequential (stdlib, default) or graph (LangGraph)")
     parser.add_argument("--now", help="ISO timestamp used as the scheduling clock")
     parser.add_argument("--db", help="SQLite path (default: storage/run-demo.db)")
     parser.add_argument("--skip-tests", action="store_true")
@@ -148,14 +157,15 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.fromisoformat(args.now) if args.now else datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
-    _say("1/4", f"Python {sys.version.split()[0]} OK  |  no dependencies  |  input: {args_label(batch_dir)}")
+    engine_note = "LangGraph engine" if args.engine == "graph" else "no dependencies"
+    _say("1/4", f"Python {sys.version.split()[0]} OK  |  {engine_note}  |  input: {args_label(batch_dir)}")
 
     results: dict[str, bool] = {}
     results["tests"] = True if args.skip_tests else _run_tests()
     if not results["tests"]:
         print("      tests FAILED - fix them before trusting the pipeline output")
 
-    (_, pipeline_ok), summary = _run_pipeline(batch_dir, Path(args.db) if args.db else ROOT / "storage" / "run-demo.db", now, args.with_llm, args.with_judge)  # noqa: E501
+    (_, pipeline_ok), summary = _run_pipeline(batch_dir, Path(args.db) if args.db else ROOT / "storage" / "run-demo.db", now, args.with_llm, args.with_judge, args.engine)  # noqa: E501
     results["pipeline"] = pipeline_ok
 
     results["eval"] = True if args.skip_eval else _run_eval(batch_dir, now)

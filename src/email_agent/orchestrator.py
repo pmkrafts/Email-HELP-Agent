@@ -29,6 +29,7 @@ def _ms(start: float) -> int:
 
 
 class Orchestrator:
+    """Sequential engine: explicit state machine, stdlib only (the default)."""
     def __init__(self, settings: Settings, repo: Repository | None = None, logger: RunLogger | None = None):
         self.settings = settings
         self.repo = repo
@@ -140,3 +141,21 @@ class Orchestrator:
                 continue
             states.append(self.process(email, now))
         return states, failures, skipped
+
+
+def build_orchestrator(
+    settings: Settings, repo: Repository | None = None, logger: RunLogger | None = None
+):
+    """Engine selector: sequential (stdlib) or graph (LangGraph, optional dependency).
+
+    The graph module is imported lazily so the default install never needs `langgraph`.
+    """
+    if settings.engine == "graph":
+        try:
+            from .graph import GraphOrchestrator
+        except ImportError as exc:  # noqa: TRY003
+            raise RuntimeError(
+                "engine 'graph' needs LangGraph: pip install 'email-agent[graph]' (or `pip install langgraph`)"
+            ) from exc
+        return GraphOrchestrator(settings, repo, logger)
+    return Orchestrator(settings, repo, logger)

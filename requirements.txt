@@ -9,3 +9,8 @@
 # Optional UI (Streamlit review console):
 #   pip install streamlit
 #   streamlit run ui/app.py
+
+# Optional LangGraph engine (alternative orchestration; see src/email_agent/graph.py):
+#   pip install langgraph        # or: pip install 'email-agent[graph]'
+#   python email-agent.py --engine graph run --input data/sample_emails
+#   python email-agent.py --engine graph graph --out docs/graph.mmd

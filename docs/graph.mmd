@@ -1,0 +1,38 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	retrieve(retrieve)
+	draft(draft)
+	review(review)
+	revise(revise)
+	finalize_review(finalize_review)
+	schedule(schedule)
+	persist(persist)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	classify -. &nbsp;halt&nbsp; .-> __end__;
+	classify -.-> retrieve;
+	classify -.-> schedule;
+	draft -. &nbsp;halt&nbsp; .-> __end__;
+	draft -.-> review;
+	finalize_review -. &nbsp;halt&nbsp; .-> __end__;
+	finalize_review -.-> schedule;
+	retrieve -. &nbsp;halt&nbsp; .-> __end__;
+	retrieve -.-> draft;
+	review -. &nbsp;halt&nbsp; .-> __end__;
+	review -.-> finalize_review;
+	review -.-> revise;
+	revise -. &nbsp;halt&nbsp; .-> __end__;
+	revise -.-> review;
+	schedule -. &nbsp;halt&nbsp; .-> __end__;
+	schedule -.-> persist;
+	persist --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+
