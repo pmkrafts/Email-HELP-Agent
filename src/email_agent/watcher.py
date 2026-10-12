@@ -105,6 +105,26 @@ def stored_files(repo: Repository, limit: int = 50) -> list[Path]:
     return [Path(row["raw_path"]) for row in rows if row["raw_path"] and Path(row["raw_path"]).is_file()]
 
 
+def copy_samples(inbox_dir: str | Path, source_dir: str | Path, limit: int = 12) -> list[Path]:
+    """Copy bundled sample emails into the inbox (demo affordance) — existing files are left alone."""
+    import shutil
+
+    target = Path(inbox_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    copied: list[Path] = []
+    for path in sorted(Path(source_dir).iterdir()):
+        if len(copied) >= limit:
+            break
+        if not path.is_file() or path.suffix.lower() not in SUFFIXES:
+            continue
+        destination = target / path.name
+        if destination.exists():
+            continue
+        shutil.copy(path, destination)
+        copied.append(destination)
+    return copied
+
+
 def watch(
     settings: Settings,
     input_dir: str | Path,

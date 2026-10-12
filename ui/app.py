@@ -28,7 +28,7 @@ from email_agent import report as _report_module  # noqa: E402
 from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
 from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
 from email_agent.storage import Repository  # noqa: E402
-from email_agent.watcher import inbox_files, process_once, stored_files  # noqa: E402
+from email_agent.watcher import copy_samples, inbox_files, process_once, stored_files  # noqa: E402
 
 if not hasattr(_report_module, "idle_note") or not hasattr(Repository, "latest_updated_at"):
     # A long-running Streamlit server keeps imported modules cached: after updating the code the
@@ -127,6 +127,7 @@ def sidebar() -> dict:
     live_force = False
     process_now = False
     reprocess = False
+    load_samples = False
     if live:
         live_inbox = st.sidebar.text_input("Inbox folder", value=live_inbox,
                                           help="New .eml/.txt files dropped here are picked up automatically")
@@ -141,6 +142,8 @@ def sidebar() -> dict:
         live_interval = st.sidebar.selectbox("Refresh every", [1, 2, 5], index=1,
                                              format_func=lambda seconds: f"{seconds}s")
         process_now = st.sidebar.button("Process the inbox now")
+        load_samples = st.sidebar.button("Load the sample emails (12) into the inbox",
+                                         help="Copies data/sample_emails into the inbox folder and processes them")
         stored_count = _stored_file_count(live_db)
         reprocess = st.sidebar.button(f"Reprocess stored emails ({stored_count})", disabled=stored_count == 0,
                                       help="Re-run the emails already in this database from their files")
@@ -183,6 +186,7 @@ def sidebar() -> dict:
         "live_force": live_force,
         "process_now": process_now,
         "reprocess": reprocess,
+        "load_samples": load_samples,
         "settings": settings,
     }
 
@@ -424,9 +428,14 @@ def live_panel(db_path: str, interval: int, settings, inbox_dir: str, watch_here
 
     tick = st.session_state.get("live_tick")
     legacy = sum(1 for row in rows if not row.get("status"))
+    inbox_count = len(inbox_files(inbox_dir)) if watch_here else None
+    inbox_note = f" · inbox: {inbox_count} file(s)" if inbox_count is not None else ""
     st.caption(f"Live · watching `{db_path}` · refreshing every {interval}s · "
-               f"{sum(counts.values())} email(s) seen · {idle_note(heartbeat)}"
+               f"{sum(counts.values())} email(s) seen · {idle_note(heartbeat)}{inbox_note}"
                + (f" · last pass: {tick}" if tick else ""))
+    if watch_here and inbox_count == 0:
+        st.caption(f"The inbox folder `{inbox_dir}` is empty — drop a `.eml`/`.txt` file there (or press "
+                   "**Load the sample emails** in the sidebar) and it will appear here automatically.")
     if legacy:
         st.caption(f"{legacy} row(s) here predate the live view (no stage recorded) — "
                    "use **Reprocess stored emails** in the sidebar to give them stages.")
@@ -674,12 +683,25 @@ def main() -> None:
         st.caption("Live dashboard — new emails in the inbox folder are picked up automatically, and any "
                    "row below opens into its full detail. **Run pipeline** is disabled in this mode.")
         live_settings = replace(controls["settings"], db_path=Path(controls["live_db"]))
+        if controls["load_samples"]:
+            copied = copy_samples(controls["live_inbox"], ROOT / "data" / "sample_emails")
+            with st.spinner(f"Processing {len(copied)} copied email(s)…"):
+                result = process_once(live_settings, controls["live_inbox"], limit=20, force=True)
+            st.success(f"Copied {len(copied)} sample email(s) into the inbox and processed "
+                       f"{len(result.processed)} of them — they are in the feed below.")
         if controls["process_now"]:
             with st.spinner("Processing the inbox…"):
                 result = process_once(live_settings, controls["live_inbox"], limit=10,
                                       force=controls["live_force"])
-            st.success(f"Processed {len(result.processed)} · skipped {len(result.skipped)} · "
-                       f"errors {len(result.errors)}")
+            if result.processed or result.skipped or result.errors:
+                st.success(f"Processed {len(result.processed)} · skipped {len(result.skipped)} · "
+                           f"errors {len(result.errors)}")
+                if result.skipped and not result.processed:
+                    st.caption("Those files are already in this database — tick **Reprocess emails "
+                               "already stored**, or use **Reprocess stored emails** above.")
+            else:
+                st.info(f"The inbox folder is empty — drop a `.eml`/`.txt` file into "
+                        f"`{controls['live_inbox']}`, or press **Load the sample emails** above.")
         if controls["reprocess"]:
             with st.spinner("Reprocessing the stored emails…"):
                 repo = Repository(controls["live_db"])

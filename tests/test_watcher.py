@@ -131,6 +131,13 @@ class SweepTests(_WatcherFixture):
         self.assertEqual(len(again.processed), 1)          # a reprocess upgrades the row
         self.assertEqual(len(self.repo.live_rows()), 1)
 
+    def test_copy_samples_seeds_the_inbox_once(self) -> None:
+        copied = watcher.copy_samples(self.inbox, SAMPLES, limit=3)
+        self.assertEqual(len(copied), 3)
+        self.assertEqual(len(watcher.inbox_files(self.inbox)), 3)
+        self.assertEqual(len(watcher.copy_samples(self.inbox, SAMPLES, limit=12)), 9)  # the rest
+        self.assertEqual(watcher.copy_samples(self.inbox, SAMPLES, limit=12), [])     # nothing left
+
     def test_limit_caps_a_sweep(self) -> None:
         self.drop("a.eml", "003_positive_feedback.eml")
         self.drop("b.eml", "011_long_thread_escalation.eml")

@@ -128,6 +128,32 @@ class UiSmokeTests(unittest.TestCase):
             finally:
                 repo.close()
 
+    def test_load_sample_emails_feeds_the_dashboard(self) -> None:
+        """The demo affordance: one click fills the inbox and processes it into the dashboard."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "seeded.db"
+            inbox = Path(tmp) / "inbox"
+            app = AppTest.from_file(str(APP), default_timeout=300)
+            app.run()
+            next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
+            app.run()
+            next(item for item in app.sidebar.text_input if item.label == "Database").set_value(str(db_path))
+            next(item for item in app.sidebar.text_input if item.label == "Inbox folder").set_value(str(inbox))
+            app.run()
+            next(button for button in app.sidebar.button if "Load the sample emails" in button.label).click()
+            app.run()
+
+            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+            body = " ".join(item.value for item in app.success)
+            self.assertIn("Copied 12 sample email(s)", body)
+            repo = Repository(db_path)
+            try:
+                # every email reached the scheduled *stage*; the bucket lives in the schedule row
+                self.assertEqual(repo.status_counts(), {"scheduled": 12})
+                self.assertEqual(repo.summary()["scheduled"], {"scheduled": 10, "junk": 1, "escalated": 1})
+            finally:
+                repo.close()
+
     def test_live_row_opens_into_full_detail(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             inbox = Path(tmp) / "inbox"
