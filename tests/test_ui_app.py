@@ -93,7 +93,8 @@ class UiSmokeTests(unittest.TestCase):
             app.run()
             self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
             shown = " ".join(item.value for item in app.info)
-            self.assertIn("python email-agent.py watch --input data/inbox", shown)
+            self.assertIn("watch --input data/inbox", shown)
+            self.assertIn("--force", shown)
 
     def test_live_mode_shows_rows_from_the_watcher_database(self) -> None:
         """Seed a database the way the watcher does, then point the console at it."""

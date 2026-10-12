@@ -8,7 +8,7 @@ the offline rules engine. Nothing is ever sent — dispatch times are recorded o
 
 ```bash
 pip install -r requirements.txt
-pip install streamlit
+pip install "streamlit>=1.37"
 streamlit run ui/app.py      # http://localhost:8501
 ```
 
@@ -61,7 +61,7 @@ The console can follow a folder instead of running a batch: one process watches 
 the UI shows each one arrive, advance through the stages and end up scheduled — no reload needed.
 
 ```bash
-pip install -r requirements.txt streamlit                             # once
+pip install -r requirements.txt "streamlit>=1.37"                     # once
 python email-agent.py --db storage/live.db watch --input data/inbox   # terminal 1
 streamlit run ui/app.py                                               # terminal 2
 ```
@@ -76,6 +76,18 @@ claims each email so a second watcher cannot double-process it, and writes every
 completes. A file that cannot be parsed is recorded once as an `error` row and the sweep continues.
 `--once` does a single sweep (cron-friendly), `--interval` sets the poll cadence (default 2 s) and
 `--limit` caps a sweep.
+
+**If nothing appears:** the emails are probably already in that database (the watcher reports
+`skipped N file(s) already stored`). Use `--force` to process them again, or point both sides at a
+fresh database:
+
+```bash
+python email-agent.py --db storage/live.db watch --input data/inbox --force
+# then set "Watcher database" to storage/live.db in the sidebar
+```
+
+The live view needs Streamlit ≥ 1.37 (fragments); older installs show a manual **Refresh now** button
+instead of auto-refresh.
 
 ## 4. How the engine works (LangGraph)
 

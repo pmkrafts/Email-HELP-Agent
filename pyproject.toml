@@ -16,4 +16,4 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [project.optional-dependencies]
-ui = ["streamlit>=1.30"]
+ui = ["streamlit>=1.37"]  # >=1.37 for st.fragment(run_every=...) — the live view

@@ -10,6 +10,7 @@ A file that cannot be parsed is recorded once as an error row and the sweep cont
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +23,15 @@ from .parser import parse_file
 from .storage import Repository
 
 SUFFIXES = {".eml", ".txt"}
+
+
+@dataclass
+class SweepResult:
+    """What one pass over the folder did — the CLI prints this so nothing is silently skipped."""
+
+    processed: list[AgentState] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)   # already stored: use --force or a fresh --db
+    errors: list[tuple[str, str]] = field(default_factory=list)
 
 
 def inbox_files(input_dir: str | Path) -> list[Path]:
@@ -40,24 +50,27 @@ def sweep(
     now: datetime | None = None,
     limit: int | None = None,
     force: bool = False,
-) -> list[AgentState]:
-    """One pass over the folder; returns the emails processed in this pass."""
-    processed = repo.processed_message_ids()
-    produced: list[AgentState] = []
+) -> SweepResult:
+    """One pass over the folder: process new files, report what was skipped or unparsable."""
+    processed_ids = repo.processed_message_ids()
+    result = SweepResult()
     for path in inbox_files(input_dir):
-        if limit is not None and len(produced) >= limit:
+        if limit is not None and len(result.processed) >= limit:
             break
         try:
             email = parse_file(path)
         except Exception as exc:  # noqa: BLE001 - one broken file must not stop the sweep
-            repo.record_file_error(path, f"{type(exc).__name__}: {exc}")
+            error = f"{type(exc).__name__}: {exc}"
+            repo.record_file_error(path, error)
+            result.errors.append((path.name, error))
             continue
-        if not force and email.message_id in processed:
+        if not force and email.message_id in processed_ids:
+            result.skipped.append(path.name)
             continue
         repo.claim_email(email)  # live marker: the UI shows the email before it is processed
-        produced.append(orchestrator.process(email, now=now))
-        processed.add(email.message_id)
-    return produced
+        result.processed.append(orchestrator.process(email, now=now))
+        processed_ids.add(email.message_id)
+    return result
 
 
 def watch(
@@ -72,12 +85,14 @@ def watch(
     logger: RunLogger | None = None,
     orchestrator: GraphOrchestrator | None = None,
     on_email: Callable[[AgentState], Any] | None = None,
+    on_sweep: Callable[[SweepResult], Any] | None = None,
     sleep: Callable[[float], Any] = time.sleep,
     max_sweeps: int | None = None,
 ) -> list[AgentState]:
     """Poll `input_dir` until interrupted (`once=True` does a single sweep).
 
-    `max_sweeps` and `sleep` exist for tests: they make the loop deterministic without waiting.
+    `on_sweep` reports what each pass did (processed / skipped / unparsable); `max_sweeps` and
+    `sleep` exist for tests: they make the loop deterministic without waiting.
     """
     owns_repo = repo is None
     repo = repo if repo is not None else Repository(settings.db_path)
@@ -87,11 +102,13 @@ def watch(
     sweeps = 0
     try:
         while True:
-            produced = sweep(orchestrator, repo, input_dir, now=now, limit=limit, force=force)
-            states.extend(produced)
-            for state in produced:
+            result = sweep(orchestrator, repo, input_dir, now=now, limit=limit, force=force)
+            states.extend(result.processed)
+            for state in result.processed:
                 if on_email is not None:
                     on_email(state)
+            if on_sweep is not None:
+                on_sweep(result)
             sweeps += 1
             if once or (max_sweeps is not None and sweeps >= max_sweeps):
                 break

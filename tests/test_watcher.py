@@ -1,6 +1,8 @@
 """Watcher tests: pickup, idempotency, the claim, error rows and the poll loop."""
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -124,6 +126,15 @@ class SweepTests(_WatcherFixture):
         self.assertEqual(len(self.watch(once=True)), 1)
         self.assertEqual(len(self.repo.live_rows()), 2)
 
+    def test_a_second_sweep_reports_the_skipped_file(self) -> None:
+        """Silent skipping is what makes the live view look broken — the sweep reports it."""
+        self.drop("a.eml")
+        self.watch(once=True)
+        results: list = []
+        self.watch(once=True, on_sweep=results.append)
+        self.assertEqual(results[0].processed, [])
+        self.assertEqual(results[0].skipped, ["a.eml"])
+
     def test_the_loop_picks_up_a_file_dropped_between_sweeps(self) -> None:
         self.drop("a.eml", "003_positive_feedback.eml")
 
@@ -146,6 +157,25 @@ class CliWatchTests(_WatcherFixture):
         rows = self.repo.live_rows()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], "scheduled")
+
+    def test_the_cli_says_why_nothing_happened(self) -> None:
+        from email_agent.cli import main
+
+        self.drop("a.eml")
+        main(["--db", str(self.db), "watch", "--input", str(self.inbox), "--once"])
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = main(["--db", str(self.db), "watch", "--input", str(self.inbox), "--once"])
+        self.assertEqual(code, 0)
+        self.assertIn("skipped 1 file(s) already stored", buffer.getvalue())
+        self.assertIn("--force", buffer.getvalue())
+
+    def test_the_db_flag_works_before_or_after_the_subcommand(self) -> None:
+        from email_agent.cli import main
+
+        self.drop("a.eml")
+        self.assertEqual(main(["watch", "--input", str(self.inbox), "--once", "--db", str(self.db)]), 0)
+        self.assertEqual(len(self.repo.live_rows()), 1)
 
 
 if __name__ == "__main__":

@@ -280,8 +280,12 @@ def live_panel(db_path: str, interval: int) -> None:
     st.caption(f"Live · watching `{db_path}` · refreshing every {interval}s · "
                f"{sum(counts.values())} email(s) seen")
     if not rows:
-        st.info("Nothing yet. Start the watcher, then drop an email into the folder:\n\n"
-                "```\npython email-agent.py watch --input data/inbox\n```")
+        st.info(
+            "Nothing yet. Start the watcher in a terminal, then drop an email into the folder:\n\n"
+            f"```\npython email-agent.py --db {db_path} watch --input data/inbox\n```\n\n"
+            "Already-processed emails are skipped by design — add `--force`, or point the watcher at "
+            "a fresh database."
+        )
         return
 
     live_board(counts, summary, stalled)
@@ -296,11 +300,26 @@ def live_panel(db_path: str, interval: int) -> None:
 
 
 def live_section(db_path: str, interval: int) -> None:
-    """Run the live panel as an auto-refreshing fragment — the rest of the page stays put."""
+    """Run the live panel as an auto-refreshing fragment — the rest of the page stays put.
+
+    Streamlit older than 1.37 has no `st.fragment(run_every=…)`; those installs get a manual
+    refresh button instead of an error.
+    """
     def render() -> None:
         live_panel(db_path, interval)
 
-    st.fragment(run_every=f"{interval}s")(render)()
+    fragment = getattr(st, "fragment", None)
+    if fragment is not None:
+        try:
+            fragment(run_every=f"{interval}s")(render)()
+            return
+        except TypeError:  # a fragment implementation without run_every
+            pass
+    live_panel(db_path, interval)
+    st.caption("Auto-refresh needs Streamlit 1.37+ (`pip install -U streamlit`) — "
+               "use the button to update manually.")
+    if st.button("Refresh now"):
+        st.rerun()
 
 
 def schedule_view(rows: list[dict]) -> None:

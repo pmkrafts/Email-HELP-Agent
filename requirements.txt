@@ -5,7 +5,7 @@
 # (see .env.example). The provider seam lives in src/email_agent/llm.py.
 
 # Optional UI (Streamlit review console):
-#   pip install streamlit
+#   pip install "streamlit>=1.37"   # >=1.37 for st.fragment(run_every=...) — the live view
 #   streamlit run ui/app.py
 
 langgraph>=1.0

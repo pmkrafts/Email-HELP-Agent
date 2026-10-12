@@ -210,12 +210,13 @@ def cmd_watch(args: argparse.Namespace) -> int:
         return 2
     from .analytics import RunLogger
     from .storage import Repository
-    from .watcher import watch
+    from .watcher import inbox_files, watch
 
     repo = Repository(settings.db_path)
     logger = RunLogger(settings.root / "storage" / "logs")
     orchestrator = engine(settings, repo, logger)
     now = _parse_now(args.now)
+    candidates = len(inbox_files(args.input))
 
     def report(state) -> None:
         classification = state.classification
@@ -229,12 +230,21 @@ def cmd_watch(args: argparse.Namespace) -> int:
             f"-> {send_at} ({schedule.status if schedule else state.status})"
         )
 
+    def report_sweep(result) -> None:
+        if result.skipped:
+            print(f"      skipped {len(result.skipped)} file(s) already stored in this database — "
+                  f"use --force to process them again, or point --db at a fresh database")
+        for name, error in result.errors:
+            print(f"      unparsable  {name}: {error}")
+
     print(f"Watching {args.input} every {args.interval:g}s — db {settings.db_path} — Ctrl-C to stop")
+    if candidates == 0:
+        print("      (folder is empty — drop a .eml/.txt file into it)")
     try:
         states = watch(
             settings, args.input, interval=args.interval, now=now, once=args.once,
             limit=args.limit, force=args.force, repo=repo, logger=logger,
-            orchestrator=orchestrator, on_email=report,
+            orchestrator=orchestrator, on_email=report, on_sweep=report_sweep,
         )
     finally:
         repo.close()
@@ -249,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="process a batch of emails")
+    run_p.add_argument("--db", default=argparse.SUPPRESS, help="database path (same as the global --db)")
     run_p.add_argument("--input", required=True, help="directory with .eml/.txt files (or a batch dir with emails/)")
     run_p.add_argument("--now", help="ISO timestamp to use as 'now' (deterministic runs/tests)")
     run_p.add_argument("--force", action="store_true", help="re-process emails already stored")
@@ -271,6 +282,7 @@ def build_parser() -> argparse.ArgumentParser:
     graph_p.set_defaults(func=cmd_graph)
 
     watch_p = sub.add_parser("watch", help="poll a folder and process emails as they arrive (live view)")
+    watch_p.add_argument("--db", default=argparse.SUPPRESS, help="database path (same as the global --db)")
     watch_p.add_argument("--input", required=True, help="folder to poll for new .eml/.txt files")
     watch_p.add_argument("--interval", type=float, default=2.0, help="seconds between sweeps (default: 2)")
     watch_p.add_argument("--once", action="store_true", help="single sweep, then exit")
