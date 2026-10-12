@@ -222,17 +222,22 @@ class UiSmokeTests(unittest.TestCase):
     def test_a_stale_in_memory_module_gets_an_actionable_message(self) -> None:
         """A Streamlit server started before an update keeps the old package in memory."""
         import email_agent.report as report_module
+        import email_agent.watcher as watcher_module
 
-        saved = report_module.idle_note
-        del report_module.idle_note
-        try:
-            app = AppTest.from_file(str(APP), default_timeout=90)
-            app.run()
-            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
-            self.assertTrue(any("Restart it" in error.value for error in app.error),
-                            [error.value for error in app.error])
-        finally:
-            report_module.idle_note = saved
+        cases = [(report_module, "idle_note"), (watcher_module, "copy_samples")]
+        for module, attribute in cases:
+            with self.subTest(attribute=attribute):
+                saved = getattr(module, attribute)
+                delattr(module, attribute)
+                try:
+                    app = AppTest.from_file(str(APP), default_timeout=90)
+                    app.run()
+                    self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+                    message = " ".join(error.value for error in app.error)
+                    self.assertIn("Restart it", message)
+                    self.assertIn(attribute, message)     # names what is missing
+                finally:
+                    setattr(module, attribute, saved)
 
     def test_missing_langgraph_shows_the_install_hint(self) -> None:
         """Without langgraph the run must surface the install hint, not a traceback."""

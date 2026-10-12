@@ -24,22 +24,44 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from dataclasses import replace  # noqa: E402
 
-from email_agent import report as _report_module  # noqa: E402
+from email_agent import report as _report  # noqa: E402
+from email_agent import storage as _storage  # noqa: E402
+from email_agent import watcher as _watcher  # noqa: E402
 from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
-from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
-from email_agent.storage import Repository  # noqa: E402
-from email_agent.watcher import copy_samples, inbox_files, process_once, stored_files  # noqa: E402
 
-if not hasattr(_report_module, "idle_note") or not hasattr(Repository, "latest_updated_at"):
-    # A long-running Streamlit server keeps imported modules cached: after updating the code the
-    # script re-runs against the old package. Say what to do instead of raising ImportError.
+# A long-running Streamlit server keeps imported modules cached, so after an update the script can
+# re-run against the older package. Check every symbol this app uses and say what to do, instead of
+# raising ImportError from an import statement (which cannot be caught by this check).
+_MISSING = [
+    name for name, value in (
+        ("report.build_report", getattr(_report, "build_report", None)),
+        ("report.idle_note", getattr(_report, "idle_note", None)),
+        ("report.PRIORITY_ORDER", getattr(_report, "PRIORITY_ORDER", None)),
+        ("report.REQUIREMENTS_COVERAGE", getattr(_report, "REQUIREMENTS_COVERAGE", None)),
+        ("storage.Repository", getattr(_storage, "Repository", None)),
+        ("watcher.inbox_files", getattr(_watcher, "inbox_files", None)),
+        ("watcher.process_once", getattr(_watcher, "process_once", None)),
+        ("watcher.stored_files", getattr(_watcher, "stored_files", None)),
+        ("watcher.copy_samples", getattr(_watcher, "copy_samples", None)),
+    ) if value is None
+]
+if _MISSING:
     st.error(
         "This console is holding an older `email_agent` in memory (Streamlit caches imported "
-        "modules). Restart it: **Ctrl-C** in the terminal, then `streamlit run ui/app.py`."
+        "modules). Restart it: **Ctrl-C** in the terminal, then `streamlit run ui/app.py`.\n\n"
+        f"Missing: {', '.join(_MISSING)}"
     )
     st.stop()
 
-idle_note = _report_module.idle_note
+build_report = _report.build_report
+idle_note = _report.idle_note
+PRIORITY_ORDER = _report.PRIORITY_ORDER
+REQUIREMENTS_COVERAGE = _report.REQUIREMENTS_COVERAGE
+Repository = _storage.Repository
+inbox_files = _watcher.inbox_files
+process_once = _watcher.process_once
+stored_files = _watcher.stored_files
+copy_samples = _watcher.copy_samples
 
 BATCHES = {
     "Golden set — 12 hand-written emails": ROOT / "data" / "sample_emails",
