@@ -93,6 +93,15 @@ The judge is consulted for a draft review only when the deterministic reviewer a
 
 - `persist` writes to SQLite (`emails`, `classifications`, `drafts`, `reviews`, `schedules`,
   `agent_logs`) and `RunLogger` appends one JSONL line per email to `storage/logs/`.
+- Every node also **writes its own stage as it finishes** (`Repository.save_stage`, driven centrally by
+  the `_guard` wrapper): the `emails` row carries `status` (`processing → classified → drafted →
+  reviewed → scheduled`, or `error`) and `updated_at`, so another process can follow an email while it
+  is still running. `save_state` at the `persist` node remains the seal; the trace (`agent_logs`) is
+  written at every stage.
+- `src/email_agent/watcher.py` polls a folder (`email-agent.py --db … watch --input data/inbox`) and
+  drives the same pipeline per file: parse oldest-first, skip what is stored, *claim* the email so a
+  second watcher cannot double-process it, process, and record unparsable files once as `error` rows.
+  The Streamlit live view reads that database on a timer — that is the real-time interface.
 - Every node appends a trace entry (`agent`, `event`, `latency_ms`, details), which is what the UI's
   **Agent trace** tab renders under human labels (`TRACE_LABELS` in `report.py`).
 - `EMAIL_AGENT_GRAPH_CHECKPOINT=1` compiles the graph with an `InMemorySaver` and keys each run by
