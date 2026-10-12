@@ -377,9 +377,14 @@ def main() -> None:
 
     if controls["run"] and controls["input_dir"]:
         with st.spinner(f"Processing {controls['label']} in {controls['tier']} mode…"):
-            report = build_report(controls["input_dir"], controls["settings"], limit=controls["limit"])
-        st.session_state["report"] = report
-        st.session_state["report_label"] = controls["label"]
+            report = None
+            try:
+                report = build_report(controls["input_dir"], controls["settings"], limit=controls["limit"])
+            except RuntimeError as exc:  # e.g. the graph engine without its optional extra
+                st.error(str(exc))
+        if report is not None:
+            st.session_state["report"] = report
+            st.session_state["report_label"] = controls["label"]
 
     report = st.session_state.get("report")
     if report is None:

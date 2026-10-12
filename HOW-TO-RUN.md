@@ -125,7 +125,8 @@ python run.py --engine graph                                                   #
 ```
 
 …or the sidebar radio **Orchestration engine** in the UI (default: *Sequential (stdlib)*). An unknown
-value falls back to sequential; `python email-agent.py --help` lists the flag.
+value falls back to sequential; `python email-agent.py --help` lists the flag. Selecting LangGraph in
+the UI without the optional extra shows the install hint in the app (the run does not crash).
 
 ### Inspect the topology
 

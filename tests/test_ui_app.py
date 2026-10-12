@@ -16,6 +16,13 @@ try:
 except Exception:  # noqa: BLE001 - streamlit is optional
     HAS_STREAMLIT = False
 
+try:
+    import langgraph  # noqa: F401
+
+    HAS_LANGGRAPH = True
+except Exception:  # noqa: BLE001 - optional extra
+    HAS_LANGGRAPH = False
+
 APP = ROOT / "ui" / "app.py"
 ISOLATED_KEYS = (
     "EMAIL_AGENT_LLM", "EMAIL_AGENT_MODEL", "EMAIL_AGENT_API_KEY", "EMAIL_AGENT_BASE_URL",
@@ -47,13 +54,8 @@ class UiSmokeTests(unittest.TestCase):
         self.assertTrue(any("Run pipeline" in button.label for button in app.sidebar.button))
 
         # full batch by default now (checkbox pre-checked) - keep this run small anyway
-        whole_batch = next(box for box in app.sidebar.checkbox if "entire batch" in box.label)
-        whole_batch.set_value(False)
-        app.run()
-        app.sidebar.slider[0].set_value(2)
-        run_button = next(button for button in app.sidebar.button if "Run pipeline" in button.label)
-        run_button.click()
-        app.run()
+        self._cap_run(app, 2)
+        self._click_run(app)
 
         self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
         report = app.session_state["report"]
@@ -70,6 +72,61 @@ class UiSmokeTests(unittest.TestCase):
             expanders = getattr(app, "expander", None)
             if view != "Table + inspector" and expanders is not None:
                 self.assertGreaterEqual(len(expanders), 1)
+
+    def test_engine_defaults_to_sequential(self) -> None:
+        app = AppTest.from_file(str(APP), default_timeout=90)
+        app.run()
+        engine_radio = next(radio for radio in app.sidebar.radio if radio.label == "Orchestration engine")
+        self.assertTrue(engine_radio.value.startswith("Sequential"))
+
+    @unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (optional extra)")
+    def test_graph_engine_runs_from_the_sidebar(self) -> None:
+        app = AppTest.from_file(str(APP), default_timeout=180)
+        app.run()
+        self._cap_run(app, 2)
+        engine_radio = next(radio for radio in app.sidebar.radio if radio.label == "Orchestration engine")
+        engine_radio.set_value("LangGraph")
+        app.run()
+        self._click_run(app)
+        self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+        report = app.session_state["report"]
+        self.assertEqual(report["mode"]["engine"], "graph")
+        self.assertEqual(report["summary"]["processed"], 2)
+        self.assertTrue(any("classify" in code.value for code in app.code),   # topology panel
+                        [code.value[:40] for code in app.code])
+
+    def test_missing_graph_extra_shows_the_install_hint(self) -> None:
+        """Without langgraph the run must surface the install hint, not a traceback."""
+        import email_agent.report as report_module
+
+        hint = "engine 'graph' needs LangGraph: pip install 'email-agent[graph]'"
+        original = report_module.build_report
+        report_module.build_report = lambda *a, **k: (_ for _ in ()).throw(RuntimeError(hint))
+        try:
+            app = AppTest.from_file(str(APP), default_timeout=90)
+            app.run()
+            self._cap_run(app, 2)
+            engine_radio = next(radio for radio in app.sidebar.radio if radio.label == "Orchestration engine")
+            engine_radio.set_value("LangGraph")
+            app.run()
+            self._click_run(app)
+            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+            self.assertIn(hint, [error.value for error in app.error])
+        finally:
+            report_module.build_report = original
+
+    def _cap_run(self, app, limit: int) -> None:
+        """Uncheck 'entire batch' and set the cap, so the test bills nothing."""
+        whole_batch = next(box for box in app.sidebar.checkbox if "entire batch" in box.label)
+        whole_batch.set_value(False)
+        app.run()
+        app.sidebar.slider[0].set_value(limit)
+        app.run()
+
+    def _click_run(self, app) -> None:
+        run_button = next(button for button in app.sidebar.button if "Run pipeline" in button.label)
+        run_button.click()
+        app.run()
 
 
 if __name__ == "__main__":
