@@ -75,6 +75,7 @@ Exit codes: `0` all stages passed · `1` a stage failed · `2` environment unusa
 | `python run.py --input path/to/folder` | process your own `.eml` / `.txt` directory |
 | `python run.py --with-llm` | force the primary (GPT) tier on |
 | `python run.py --with-judge` | force the judge (JEV) tier on |
+| `python run.py --engine graph` | orchestrate with LangGraph instead of the sequential engine (§3) |
 | `python run.py --now 2026-10-12T09:00:00+00:00` | fix the scheduling clock (reproducible output) |
 | `python run.py --skip-tests --skip-eval` | just run the pipeline |
 | `python run.py --db storage/other.db` | use a different SQLite file |
@@ -101,23 +102,70 @@ python email-agent.py eval --show-misses                   # score all three lab
 
 `pip install -e .` exposes the same commands as `email-agent …`.
 
-### Engines (sequential vs LangGraph)
+Engine choice (`--engine`), topology export and checkpointing are covered in §3.
+
+---
+
+## 3. Orchestration engines (sequential / LangGraph)
+
+The pipeline logic is shared — parser, rules engine, the four agents, retrieval, SQLite storage,
+prompts and the model tiers are the same objects in both engines. Only the orchestration differs:
+
+| Engine | What it is | Needs |
+|---|---|---|
+| `sequential` (default) | explicit state machine in stdlib Python; the whole control flow is readable in `src/email_agent/orchestrator.py` | nothing |
+| `graph` | the identical pipeline compiled as a LangGraph `StateGraph` (`src/email_agent/graph.py`) | `pip install langgraph` (or `pip install 'email-agent[graph]'`) |
+
+### Pick an engine
 
 ```bash
-pip install langgraph                                   # or: pip install 'email-agent[graph]'
-python email-agent.py --engine graph run --input data/sample_emails
-python email-agent.py --engine graph graph --out docs/graph.mmd   # export the topology (Mermaid)
-EMAIL_AGENT_GRAPH_CHECKPOINT=1 python email-agent.py --engine graph run --input data/sample_emails
-python run.py --engine graph                            # one-command runner
+python email-agent.py --engine graph run --input data/sample_emails            # per command
+EMAIL_AGENT_ENGINE=graph python email-agent.py run --input data/sample_emails  # env default
+python run.py --engine graph                                                   # one-command runner
 ```
 
-The default engine is `sequential` (stdlib only). `graph` compiles the identical pipeline as a
-LangGraph `StateGraph` with the same agents, storage and guards; both produce identical results
-(verified on the 100-email batch). Set `EMAIL_AGENT_ENGINE=graph` to make it your default, or pick
-it in the UI sidebar (*Orchestration engine*). Without LangGraph installed, requesting the graph
-engine exits with an install hint instead of failing halfway.
+…or the sidebar radio **Orchestration engine** in the UI (default: *Sequential (stdlib)*). An unknown
+value falls back to sequential; `python email-agent.py --help` lists the flag.
 
-## 3. The Streamlit UI
+### Inspect the topology
+
+```bash
+python email-agent.py --engine graph graph                 # Mermaid source to stdout
+python email-agent.py --engine graph graph --out docs/graph.mmd
+```
+
+```
+START → classify ─(spam)→ schedule
+        classify → retrieve → draft → review ─(needs_revision, attempts left)→ revise → review
+                                    review ─(otherwise)→ finalize_review → schedule → persist → END
+```
+
+Every conditional edge also carries a `halt` branch: a failing node routes that email straight to `END`
+with `status="error"`, so one bad email never stops a batch. With the graph engine selected the UI shows
+the compiled topology in an expander as well.
+
+### Durable state (checkpointing)
+
+```bash
+EMAIL_AGENT_GRAPH_CHECKPOINT=1 python email-agent.py --engine graph run --input data/sample_emails
+```
+
+Each email's state is kept in a LangGraph checkpointer (in-memory), keyed by `message_id`, and can be
+read back with `GraphOrchestrator.snapshot(message_id)`. That is the hook for human-in-the-loop resume
+(pause an escalated case, resume after a reviewer edits) — the topology is already shaped for it.
+
+### What to expect
+
+- **Identical results to the sequential engine.** Verified on the 100-email batch: every per-email row
+  byte-identical (priority, score, flags, draft text and version, review status, dispatch) with matching
+  batch summaries. Pinned by `tests/test_graph_engine.py`.
+- Same CLI output, same SQLite rows, same UI panels and metrics.
+- A little extra overhead per email (state serialisation) — invisible next to model latency.
+- If LangGraph is missing, the command exits immediately (code 2) with an install hint instead of
+  failing halfway through a batch:
+  `error: engine 'graph' needs LangGraph: pip install 'email-agent[graph]' (or \`pip install langgraph\`)`
+
+## 4. The Streamlit UI
 
 ```bash
 pip install streamlit        # optional dependency, install once
@@ -126,8 +174,8 @@ streamlit run ui/app.py      # http://localhost:8501
 
 Sidebar: pick a batch (12 / 20 / 100 bundled emails, or upload your own `.eml`/`.txt`), choose the
 model tiers (**Rules only** is free and offline; **GPT refinement** / **GPT + JEV judge** use the
-keys from `.env`), optionally cap the run — **"Process the entire batch" is on by default** — then
-press **Run pipeline**.
+keys from `.env`), pick the orchestration engine (**Sequential (stdlib)** or **LangGraph** — see §3),
+optionally cap the run — **"Process the entire batch" is on by default** — then press **Run pipeline**.
 
 Main area: metrics (priority mix, both average confidences, scheduled / junk / escalated /
 pending_human, judge verdicts) · a requirement-coverage expander · filters · and a **view switcher**:
@@ -145,7 +193,7 @@ urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** 
 status and latency). Results export as JSON with one click. After changing a source file, press
 **R** in the browser (or refresh) to rerun the app.
 
-## 4. Model tiers (rules → judge → primary)
+## 5. Model tiers (rules → judge → primary)
 
 ```
 Tier 0  rules engine            always on, zero tokens   (the mode all accuracy numbers were produced in)
@@ -192,7 +240,7 @@ Environment notes:
 - Measured live on the golden set with GPT + JEV: verdicts `agreed / adjudicated / agreed`,
   GPT draft confidence 0.90–1.00, one email scheduled, one escalated after two rewrites, 0 failures.
 
-## 5. Tests and data verification
+## 6. Tests and data verification
 
 ```bash
 python -m unittest discover -s tests           # 61 tests: parser edges, rules, agents, judge channels, UI smoke
@@ -201,9 +249,13 @@ python data/verify_batch.py data/generated_batch
 ```
 
 The UI has its own headless smoke test (`tests/test_ui_app.py`, Streamlit `AppTest`): it renders the
-app, runs a two-email batch and switches through all three views.
+app, runs a two-email batch and switches through all four views.
 
-## 6. Artifacts
+`tests/test_graph_engine.py` covers the LangGraph engine (skipped when `langgraph` is not installed):
+topology, golden-set parity with the sequential engine, rewritten-loop escalation, spam
+short-circuit, durable snapshot and per-email error isolation.
+
+## 7. Artifacts
 
 | Path | Contents |
 |---|---|
@@ -213,11 +265,13 @@ app, runs a two-email batch and switches through all three views.
 
 Runtime state is gitignored; `run.py` recreates its database on every run.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `python3` opens the Microsoft Store | Use `python` (or `run.bat`); `run.sh` already probes interpreters itself |
+| `engine 'graph' needs LangGraph` | Install it: `pip install langgraph` (or `pip install 'email-agent[graph]'`); the sequential engine stays available with no install |
+| Graph and sequential results look different | They should not: run `python -m unittest tests.test_graph_engine` — the parity tests compare both engines field-by-field on the golden set |
 | `input directory not found` | Run from the repo root, or pass `--input <absolute path>` |
 | `no text and no html body` in UI parser notes | Expected for the deliberately empty sample; other files should parse cleanly |
 | `judge: error` on an email | Run `python email-agent.py check`; the classification reasoning carries the HTTP reason. Cloudflare's `403 / error 1010` (bare Python User-Agent) is fixed in the client — if it reappears, the key or base URL is wrong |
