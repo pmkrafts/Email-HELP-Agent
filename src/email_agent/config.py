@@ -12,6 +12,8 @@ DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_JUDGE_MODEL = "jev-1.13"  # the JEV model id (display name "Jev 1.13")
 DEFAULT_JUDGE_BASE_URL = "https://opencode.ai/zen/v1"  # OpenCode Zen gateway; Jev lives at /systemone
 
+ENGINE_NAME = "graph"  # the orchestrator is a LangGraph state graph (src/email_agent/graph.py)
+
 
 @dataclass
 class Settings:
@@ -29,7 +31,6 @@ class Settings:
     judge_base_url: str = ""
     judge_api_key: str = field(default="", repr=False)
     refine_mode: str = "always"  # always | escalations_only (primary reserved for adjudication)
-    engine: str = "sequential"  # sequential | graph (LangGraph; optional dependency)
     graph_checkpoint: bool = False  # keep per-email state in a LangGraph checkpointer
     max_rewrites: int = 2
 
@@ -102,9 +103,6 @@ def load_settings(args: Any | None = None) -> Settings:
     refine_mode = os.environ.get("EMAIL_AGENT_REFINE_MODE", "always")
     if refine_mode not in {"always", "escalations_only"}:
         refine_mode = "always"
-    engine = getattr(args, "engine", None) or os.environ.get("EMAIL_AGENT_ENGINE", "sequential")
-    if engine not in {"sequential", "graph"}:
-        engine = "sequential"
     checkpoint_flag = os.environ.get("EMAIL_AGENT_GRAPH_CHECKPOINT", "").strip().lower()
     settings = Settings(
         root=root,
@@ -121,7 +119,6 @@ def load_settings(args: Any | None = None) -> Settings:
         judge_base_url=judge_base_url,
         judge_api_key=judge_api_key,
         refine_mode=refine_mode,
-        engine=engine,
         graph_checkpoint=checkpoint_flag in {"1", "true", "yes", "on"},
         max_rewrites=int(rules["thresholds"]["max_rewrite_loops"]),
     )

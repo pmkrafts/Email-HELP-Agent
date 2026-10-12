@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from email_agent.config import load_settings  # noqa: E402
-from email_agent.orchestrator import Orchestrator  # noqa: E402
+from email_agent.graph import GraphOrchestrator  # noqa: E402
 from email_agent.parser import parse_file  # noqa: E402
 from email_agent.storage import Repository  # noqa: E402
 
@@ -36,7 +36,7 @@ class PipelineTests(unittest.TestCase):
             os.environ.pop(key, None)
         os.environ["EMAIL_AGENT_ENV_FILE"] = str(Path(__file__).resolve().parent / ".no-env-file")
         self.settings = load_settings(None)
-        self.orch = Orchestrator(self.settings, repo=None, logger=None)
+        self.orch = GraphOrchestrator(self.settings, repo=None, logger=None)
 
     def tearDown(self) -> None:
         for key, value in self._saved_env.items():
@@ -64,7 +64,7 @@ class PipelineTests(unittest.TestCase):
     def test_runner_batch_and_storage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Repository(Path(tmp) / "test.db")
-            orch = Orchestrator(self.settings, repo=repo, logger=None)
+            orch = GraphOrchestrator(self.settings, repo=repo, logger=None)
             states, failures, skipped = orch.run_batch(SAMPLES, now=NOW)
             self.assertEqual(failures, [])
             self.assertEqual(skipped, [])

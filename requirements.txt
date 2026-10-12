@@ -1,7 +1,5 @@
-# Runtime dependencies: none. The core pipeline is stdlib-only (Python 3.11+).
-#
-# Optional convenience install (adds the `email-agent` console script):
-#   pip install -e .
+# Runtime dependency: LangGraph (the orchestrator is a state graph). Everything else is Python 3.11+ stdlib.
+#   pip install -r requirements.txt      # or: pip install -e .   (also adds the `email-agent` command)
 #
 # Optional LLM refinement (never required): set OPENAI_API_KEY and EMAIL_AGENT_LLM=openai
 # (see .env.example). The provider seam lives in src/email_agent/llm.py.
@@ -10,7 +8,4 @@
 #   pip install streamlit
 #   streamlit run ui/app.py
 
-# Optional LangGraph engine (alternative orchestration; see src/email_agent/graph.py):
-#   pip install langgraph        # or: pip install 'email-agent[graph]'
-#   python email-agent.py --engine graph run --input data/sample_emails
-#   python email-agent.py --engine graph graph --out docs/graph.mmd
+langgraph>=1.0

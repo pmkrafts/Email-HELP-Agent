@@ -3,7 +3,7 @@ name = "email-agent"
 version = "0.1.0"
 description = "Agentic AI for email automation (Quantanite assignment POC)"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["langgraph>=1.0"]  # the orchestrator is a LangGraph state graph
 
 [project.scripts]
 email-agent = "email_agent.cli:main"
@@ -17,4 +17,3 @@ where = ["src"]
 
 [project.optional-dependencies]
 ui = ["streamlit>=1.30"]
-graph = ["langgraph>=1.0"]

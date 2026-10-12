@@ -4,13 +4,15 @@ Deterministic-first POC of a multi-agent support system: **parse → classify �
 review → schedule**, with an optional LLM refinement layer behind a provider seam.
 **No email is ever sent** — results are persisted with a scheduled dispatch time only.
 
-Status: working POC (assignment scope, 3 days). Zero third-party dependencies — Python 3.11+ stdlib only.
+Status: working POC (assignment scope, 3 days). One runtime dependency — **LangGraph**, which the
+pipeline is compiled into; everything else is Python 3.11+ stdlib.
 
 ---
 
-## Quick start (no install, no API key)
+## Quick start (one dependency, no API key)
 
 ```bash
+pip install -r requirements.txt   # LangGraph (pulls langchain-core)
 python run.py                     # one command: tests -> pipeline -> agreement eval
 ```
 
@@ -23,7 +25,7 @@ python email-agent.py run --input data/batch_100            # 100-email batch (~
 python email-agent.py view --priority Critical
 python email-agent.py summary
 python email-agent.py eval --show-misses                    # score against all labelled batches
-python -m unittest discover -s tests                        # 61 tests
+python -m unittest discover -s tests                        # 71 tests
 ```
 
 See [HOW-TO-RUN.md](HOW-TO-RUN.md) for the full guide (options, troubleshooting, expected output).
@@ -38,10 +40,9 @@ input dir ──► Parser ──► Classifier ──► Retriever ──► Dr
                                                                   rewrite loop) hours)
 ```
 
-- **Orchestrator** (`src/email_agent/orchestrator.py`): the default sequential engine over a shared
-  `AgentState` — per-email error isolation (dead-letter list), idempotent by `message_id`. An
-  alternative **LangGraph** engine (`src/email_agent/graph.py`) compiles the same pipeline as a
-  `StateGraph`; pick it with `--engine graph` (see *Orchestration engines* below).
+- **Orchestrator** (`src/email_agent/graph.py`): the pipeline compiled as a LangGraph `StateGraph` —
+  branches as edges (spam short-circuit, capped rewrite loop, `halt` on node failure), per-email error
+  isolation, idempotent by `message_id`. See *Orchestration (LangGraph)* below.
 - **Classifier**: rules engine first (always available offline); optional LLM refinement never
   invents signals. Spam short-circuits to the junk queue — no reply is drafted.
 - **Retriever**: dependency-free keyword/IDF retrieval over `data/knowledge_base/` (6 policy/FAQ/past-reply docs).
@@ -104,27 +105,22 @@ What the console shows — one screen, six tabs per email:
 | Export | one-click JSON download of the full report |
 
 The UI is a view layer only: `src/email_agent/report.py` builds the view-model (stdlib, unit-tested),
-and the app calls the same `Orchestrator` as the CLI. Headless rendering is covered by
+and the app calls the same engine as the CLI. Headless rendering is covered by
 `tests/test_ui_app.py` using Streamlit's `AppTest`.
 
-## Orchestration engines (choose one)
+## Orchestration (LangGraph)
 
-| Engine | What it is | Requirement |
-|---|---|---|
-| `sequential` (default) | explicit state machine in stdlib Python; the whole control flow is readable in one file | none |
-| `graph` | the same pipeline compiled as a **LangGraph `StateGraph`** — the same agents, storage, clients and guards, with control flow as graph edges | `pip install 'email-agent[graph]'` |
+The pipeline is a LangGraph `StateGraph` (`src/email_agent/graph.py`): parser, rules engine, the four
+agents, retrieval, storage, prompts and the model tiers are ordinary Python; the control flow is the
+graph.
 
 ```bash
-python email-agent.py --engine graph run --input data/sample_emails   # or EMAIL_AGENT_ENGINE=graph
-python email-agent.py --engine graph graph --out docs/graph.mmd       # export the topology
-EMAIL_AGENT_GRAPH_CHECKPOINT=1 python email-agent.py --engine graph run ...   # durable per-email state
-python run.py --engine graph                                          # one-command runner
+python email-agent.py run --input data/sample_emails                  # normal run
+python email-agent.py graph --out docs/graph.mmd                      # export the topology
+EMAIL_AGENT_GRAPH_CHECKPOINT=1 python email-agent.py run --input data/sample_emails   # durable state
 ```
 
-In the Streamlit console the engine is a sidebar radio (*Orchestration engine*), and with LangGraph
-selected the compiled topology appears in an expander.
-
-**What the graph encodes.** The three branches the sequential engine hard-codes are now edges:
+The compiled topology is checked in at `docs/graph.mmd` and shown in the UI:
 
 ```mermaid
 graph LR
@@ -137,14 +133,9 @@ graph LR
 ```
 
 Every node failure routes straight to `END` with `status="error"` (per-email isolation), which is why
-each conditional edge also carries a `halt` label in the generated diagram.
-
-**Parity with the sequential engine (verified, not asserted):** both engines ran the 100-email batch
-with identical results — all 100 per-email rows byte-identical on priority, priority score, flags,
-engine string, judge verdict, draft text, draft version, review status, schedule status, `send_at` and
-schedule reason, plus matching batch summaries (processed 100, failed 0, same distributions, same
-average confidences). Covered permanently by `tests/test_graph_engine.py` (topology, parity, spam
-short-circuit, rewrite-loop-then-escalate, durable snapshot, per-email error isolation, CLI export).
+each conditional edge also carries a `halt` label in the generated diagram. Covered by
+`tests/test_graph_engine.py`: topology, spam short-circuit, rewrite-loop-then-escalate, durable
+snapshot, per-email error isolation and the CLI export.
 
 ## Model routing — JEV + GPT together
 

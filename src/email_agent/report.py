@@ -8,9 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .analytics import batch_summary
-from .config import Settings
+from .config import ENGINE_NAME, Settings
 from .models import AgentState
-from .orchestrator import build_orchestrator
 from .parser import parse_dir
 
 PRIORITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
@@ -21,7 +20,6 @@ TRACE_LABELS = {
     "drafter": "Drafting agent",
     "reviewer": "Review agent",
     "scheduler": "Scheduler",
-    "orchestrator": "Orchestrator",
     "storage": "Storage",
 }
 
@@ -35,7 +33,7 @@ def mode_description(settings: Settings) -> dict:
         "judge_model": settings.judge_model if settings.judge_provider != "none" else None,
         "judge_api": settings.judge_api,
         "refine_mode": settings.refine_mode,
-        "engine": settings.engine,
+        "engine": ENGINE_NAME,
         "graph_checkpoint": settings.graph_checkpoint,
         "primary_key_present": bool(settings.llm_api_key),
         "judge_key_present": bool(settings.judge_api_key and settings.judge_provider != "none"),
@@ -116,7 +114,13 @@ def build_report(
     parsed, failures = parse_dir(input_dir)
     if limit is not None:
         parsed = parsed[:limit]
-    orchestrator = build_orchestrator(settings, None, None)
+    try:
+        from .graph import GraphOrchestrator
+    except ImportError as exc:  # noqa: TRY003
+        raise RuntimeError(
+            "needs LangGraph: pip install langgraph  (or: pip install -r requirements.txt)"
+        ) from exc
+    orchestrator = GraphOrchestrator(settings, None, None)
     states = [orchestrator.process(email, now=now) for email in parsed]
     rows = [_row(state) for state in states]
     rows.sort(key=lambda row: (PRIORITY_ORDER.get(row["priority"], 9), -(row["priority_score"] or 0.0)))

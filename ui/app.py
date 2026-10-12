@@ -22,7 +22,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from email_agent.config import load_settings  # noqa: E402
+from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
 from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
 
 BATCHES = {
@@ -51,10 +51,7 @@ def fmt_time(iso: str | None) -> str:
         return iso
 
 
-ENGINES = {"Sequential (stdlib, default)": "sequential", "LangGraph": "graph"}
-
-
-def apply_env(tier: str, refine_mode: str, engine: str) -> None:
+def apply_env(tier: str, refine_mode: str) -> None:
     """Translate the sidebar choices into environment overrides, then load settings.
 
     Values are set explicitly (not just popped) because real environment variables win over
@@ -64,7 +61,6 @@ def apply_env(tier: str, refine_mode: str, engine: str) -> None:
     os.environ["EMAIL_AGENT_LLM"] = "none" if tier == TIERS[0] else "openai"
     os.environ["EMAIL_AGENT_JUDGE_LLM"] = "jev" if tier == TIERS[2] else "none"
     os.environ["EMAIL_AGENT_REFINE_MODE"] = refine_mode
-    os.environ["EMAIL_AGENT_ENGINE"] = engine
 
 
 def sidebar() -> dict:
@@ -96,12 +92,6 @@ def sidebar() -> dict:
             help="escalations_only reserves GPT classification calls for judge disagreements",
         )
     st.sidebar.divider()
-    engine_label = st.sidebar.radio(
-        "Orchestration engine", list(ENGINES), index=0,
-        help="LangGraph needs the optional extra: pip install 'email-agent[graph]'",
-    )
-    engine = ENGINES[engine_label]
-    st.sidebar.divider()
     whole_batch = st.sidebar.checkbox("Process the entire batch", value=True,
                                       help="Uncheck to cap the run; LLM tiers bill per email")
     limit = None
@@ -111,7 +101,7 @@ def sidebar() -> dict:
         st.sidebar.caption("LLM tiers bill per email: rules ~0 calls, GPT ~3, JEV ~1-2 cheap calls.")
     run = st.sidebar.button("Run pipeline", type="primary")
 
-    apply_env(tier, refine_mode, engine)
+    apply_env(tier, refine_mode)
     settings = load_settings(None)
     st.sidebar.subheader("Tier status")
     primary_ok = settings.llm_provider != "none"
@@ -119,7 +109,7 @@ def sidebar() -> dict:
     primary_state = "active" if primary_ok else ("off" if tier == TIERS[0] else "key missing")
     judge_state = "active" if judge_ok else ("off" if tier != TIERS[2] else "key missing")
     st.sidebar.markdown(
-        f"- engine: **{settings.engine}**\n"
+        f"- engine: **{ENGINE_NAME}**\n"
         f"- primary: **{settings.llm_provider}**"
         f"{f' · `{settings.llm_model}`' if primary_ok else ''} — {primary_state}\n"
         f"- judge: **{settings.judge_provider}**"
@@ -137,7 +127,6 @@ def sidebar() -> dict:
         "limit": limit,
         "run": run,
         "tier": tier,
-        "engine": engine,
         "settings": settings,
     }
 
@@ -185,15 +174,13 @@ def requirements_panel() -> None:
         ])
 
 
-def graph_panel(engine: str) -> None:
-    """With the LangGraph engine selected, show the compiled topology as Mermaid source."""
-    if engine != "graph":
-        return
+def graph_panel() -> None:
+    """The compiled pipeline topology, as Mermaid source."""
     try:
-        from email_agent.orchestrator import build_orchestrator
+        from email_agent.graph import GraphOrchestrator
 
-        diagram = build_orchestrator(load_settings(None)).diagram()
-    except (RuntimeError, AttributeError) as exc:
+        diagram = GraphOrchestrator(load_settings(None)).diagram()
+    except (ImportError, RuntimeError) as exc:
         st.warning(f"LangGraph diagram unavailable: {exc}")
         return
     with st.expander("LangGraph topology (Mermaid source of the compiled graph)", expanded=False):
@@ -380,7 +367,7 @@ def main() -> None:
             report = None
             try:
                 report = build_report(controls["input_dir"], controls["settings"], limit=controls["limit"])
-            except RuntimeError as exc:  # e.g. the graph engine without its optional extra
+            except RuntimeError as exc:  # e.g. LangGraph missing from the environment
                 st.error(str(exc))
         if report is not None:
             st.session_state["report"] = report
@@ -391,16 +378,16 @@ def main() -> None:
         st.info("Pick a batch in the sidebar and press **Run pipeline**. "
                 "Rules-only mode is free and offline; GPT/JEV tiers use the keys from your `.env`.")
         requirements_panel()
-        graph_panel(controls["engine"])
+        graph_panel()
         return
 
     st.caption(f"Batch: **{st.session_state.get('report_label')}** · "
-               f"engine: `{report['mode'].get('engine', 'sequential')}` · "
+               f"engine: `{report['mode']['engine']}` · "
                f"mode: `{report['mode']['primary']}` primary / `{report['mode']['judge']}` judge · "
                f"generated at {fmt_time(report['generated_at'])}")
     metrics(report)
     requirements_panel()
-    graph_panel(controls["engine"])
+    graph_panel()
 
     if report["failures"]:
         with st.expander(f"{len(report['failures'])} file(s) failed to parse"):

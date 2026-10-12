@@ -8,9 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .analytics import RunLogger, batch_summary
-from .config import load_settings, project_root
+from .config import ENGINE_NAME, load_settings, project_root
 from .evaluation import evaluate
-from .orchestrator import build_orchestrator
 from .storage import Repository
 
 BATCHES = ["data/sample_emails", "data/generated_batch", "data/batch_100"]
@@ -28,19 +27,30 @@ def _fmt(value, width: int, default: str = "-") -> str:
     return text[: width - 1].ljust(width)[:width]
 
 
+def _engine():
+    """Import the engine lazily: a missing LangGraph should print a hint, not a traceback."""
+    try:
+        from .graph import GraphOrchestrator
+    except ImportError as exc:  # noqa: TRY003
+        raise RuntimeError(
+            "needs LangGraph: pip install langgraph  (or: pip install -r requirements.txt)"
+        ) from exc
+    return GraphOrchestrator
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     settings = load_settings(args)
     now = _parse_now(args.now)
     repo = Repository(settings.db_path)
     logger = RunLogger(settings.root / "storage" / "logs")
     try:
-        orchestrator = build_orchestrator(settings, repo, logger)
+        orchestrator = _engine()(settings, repo, logger)
     except RuntimeError as exc:
         print(f"error: {exc}")
         return 2
     states, failures, skipped = orchestrator.run_batch(args.input, now=now, force=args.force)
 
-    print(f"Processing: {args.input}  (engine: {settings.engine}, mode: {settings.llm_provider})")
+    print(f"Processing: {args.input}  (engine: {ENGINE_NAME}, mode: {settings.llm_provider})")
     for index, state in enumerate(states, 1):
         c = state.classification
         schedule = state.schedule
@@ -175,17 +185,13 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_graph(args: argparse.Namespace) -> int:
-    """Print (or save) the LangGraph topology as Mermaid source."""
+    """Print (or save) the compiled pipeline topology as Mermaid source."""
     settings = load_settings(args)
     try:
-        orchestrator = build_orchestrator(settings)
+        diagram = _engine()(settings).diagram()
     except RuntimeError as exc:
         print(f"error: {exc}")
         return 2
-    if not hasattr(orchestrator, "diagram"):
-        print("error: the sequential engine has no graph diagram; pass --engine graph")
-        return 2
-    diagram = orchestrator.diagram()
     if args.out:
         Path(args.out).write_text(diagram + "\n", encoding="utf-8")
         print(f"wrote {args.out} ({len(diagram)} chars)")
@@ -198,8 +204,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="email_agent", description="Agentic email automation (POC)")
     parser.add_argument("--db", help="SQLite path (default: storage/agent.db)")
     parser.add_argument("--llm", help="refinement provider name: openai, jev, ... or none (default: none)")
-    parser.add_argument("--engine", choices=["sequential", "graph"],
-                        help="orchestration engine: sequential (stdlib, default) or graph (LangGraph)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="process a batch of emails")

@@ -1,7 +1,6 @@
-"""LangGraph engine tests: topology, parity with the sequential engine, branches, durability.
+"""Engine tests: graph topology, branches, per-email isolation, durability, CLI export.
 
-Skipped entirely when `langgraph` is not installed (it is an optional extra), so the default
-stdlib-only install still runs the full suite.
+`langgraph` is a hard dependency of this branch, so nothing here is skipped.
 """
 from __future__ import annotations
 
@@ -9,6 +8,7 @@ import contextlib
 import io
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,15 +16,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-try:
-    from email_agent.graph import GraphOrchestrator
-
-    HAS_LANGGRAPH = True
-except ImportError:  # pragma: no cover - optional dependency
-    HAS_LANGGRAPH = False
-
 from email_agent.config import load_settings  # noqa: E402
-from email_agent.orchestrator import Orchestrator, build_orchestrator  # noqa: E402
+from email_agent.graph import GraphOrchestrator  # noqa: E402
 from email_agent.parser import parse_file  # noqa: E402
 
 SAMPLES = ROOT / "data" / "sample_emails"
@@ -35,7 +28,7 @@ ISOLATED_KEYS = (
     "EMAIL_AGENT_LLM", "EMAIL_AGENT_MODEL", "EMAIL_AGENT_API_KEY", "EMAIL_AGENT_BASE_URL",
     "EMAIL_AGENT_JUDGE_LLM", "EMAIL_AGENT_JUDGE_API", "EMAIL_AGENT_JUDGE_BASE_URL",
     "EMAIL_AGENT_JUDGE_API_KEY", "EMAIL_AGENT_JUDGE_MODEL", "EMAIL_AGENT_REFINE_MODE",
-    "EMAIL_AGENT_ENGINE", "EMAIL_AGENT_GRAPH_CHECKPOINT", "EMAIL_AGENT_ENV_FILE",
+    "EMAIL_AGENT_GRAPH_CHECKPOINT", "EMAIL_AGENT_ENV_FILE",
     "OPENAI_API_KEY", "OPENCODE_API_KEY",
 )
 
@@ -75,7 +68,6 @@ class _GraphFixture(unittest.TestCase):
                 os.environ[key] = value
 
 
-@unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (optional extra)")
 class TopologyTests(_GraphFixture):
     def test_compiled_graph_declares_every_stage(self) -> None:
         graph = GraphOrchestrator(self.settings).graph
@@ -88,46 +80,7 @@ class TopologyTests(_GraphFixture):
         for marker in ("classify", "revise", "persist", "halt"):  # halt = error-isolation edge
             self.assertIn(marker, diagram)
 
-    def test_factory_selects_engines(self) -> None:
-        self.assertIsInstance(build_orchestrator(self.settings), Orchestrator)
-        graph_settings = load_settings(None)
-        graph_settings.engine = "graph"
-        self.assertIsInstance(build_orchestrator(graph_settings), GraphOrchestrator)
 
-
-@unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (optional extra)")
-class ParityTests(_GraphFixture):
-    def test_graph_matches_sequential_engine_on_golden_set(self) -> None:
-        sequential = Orchestrator(self.settings)
-        graph = GraphOrchestrator(self.settings)
-        for name in ("001_angry_refund_legal_threat.eml", "002_late_order_deadline.eml",
-                     "005_vip_bulk_order_complaint.eml", "010_empty_subject.eml", "011_long_thread_escalation.eml"):
-            with self.subTest(email=name):
-                parsed = parse_file(SAMPLES / name)
-                a = sequential.process(parsed, now=NOW)
-                b = graph.process(parsed, now=NOW)
-                self.assertEqual(a.status, b.status)
-                self.assertEqual(a.classification.priority, b.classification.priority)  # type: ignore[union-attr]
-                self.assertEqual(a.classification.sentiment, b.classification.sentiment)  # type: ignore[union-attr]
-                self.assertEqual(a.classification.urgency, b.classification.urgency)  # type: ignore[union-attr]
-                self.assertEqual(a.classification.flags, b.classification.flags)  # type: ignore[union-attr]
-                self.assertEqual(a.draft.text, b.draft.text)  # type: ignore[union-attr]
-                self.assertEqual(a.draft.version, b.draft.version)  # type: ignore[union-attr]
-                self.assertEqual(a.review.status, b.review.status)  # type: ignore[union-attr]
-                self.assertEqual(a.review.issues, b.review.issues)  # type: ignore[union-attr]
-                self.assertEqual(a.schedule.status, b.schedule.status)  # type: ignore[union-attr]
-                self.assertEqual(a.schedule.send_at, b.schedule.send_at)  # type: ignore[union-attr]
-
-    def test_full_batch_runs_through_the_graph(self) -> None:
-        states, failures, skipped = GraphOrchestrator(self.settings).run_batch(SAMPLES, now=NOW)
-        self.assertEqual(failures, [])
-        self.assertEqual(skipped, [])
-        self.assertEqual(len(states), 12)
-        self.assertTrue(all(state.status == "scheduled" for state in states),
-                        [state.error for state in states])
-
-
-@unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (optional extra)")
 class BranchTests(_GraphFixture):
     def test_spam_short_circuits_retrieval_and_drafting(self) -> None:
         state = GraphOrchestrator(self.settings).process(parse_file(GEN / "g15_crypto_spam.txt"), now=NOW)
@@ -175,7 +128,6 @@ class BranchTests(_GraphFixture):
         self.assertTrue(all("boom" in (s.error or "") for s in broken))
 
 
-@unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (optional extra)")
 class DurabilityTests(_GraphFixture):
     def test_checkpointer_keeps_per_email_state(self) -> None:
         os.environ["EMAIL_AGENT_GRAPH_CHECKPOINT"] = "1"
@@ -195,27 +147,30 @@ class DurabilityTests(_GraphFixture):
         self.assertIsNone(orchestrator.snapshot("whatever"))
 
 
-@unittest.skipUnless(HAS_LANGGRAPH, "langgraph is not installed (optional extra)")
 class CliTests(_GraphFixture):
     def test_graph_command_prints_mermaid(self) -> None:
         from email_agent.cli import main
 
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            code = main(["--engine", "graph", "graph"])
+            code = main(["graph"])
         self.assertEqual(code, 0)
         output = buffer.getvalue()
         self.assertIn("classify", output)
         self.assertIn("persist", output)
 
-    def test_graph_command_without_graph_engine_explains_itself(self) -> None:
+    def test_graph_command_writes_the_diagram(self) -> None:
         from email_agent.cli import main
 
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            code = main(["graph"])
-        self.assertEqual(code, 2)
-        self.assertIn("sequential engine has no graph diagram", buffer.getvalue())
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "graph.mmd"
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = main(["graph", "--out", str(target)])
+            self.assertEqual(code, 0)
+            written = target.read_text(encoding="utf-8")
+            self.assertIn("graph TD", written)
+            self.assertIn(f"wrote {target}", buffer.getvalue())
 
 
 if __name__ == "__main__":

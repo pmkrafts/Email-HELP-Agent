@@ -1,20 +1,19 @@
-"""LangGraph engine: the same pipeline expressed as a `StateGraph`.
+"""The orchestrator: the pipeline compiled as a LangGraph `StateGraph`.
 
-Opt-in alternative to the sequential orchestrator (`--engine graph` / `EMAIL_AGENT_ENGINE=graph`).
-Everything below the orchestration layer is reused unchanged — parser, rules engine, the four agents,
-storage, retrieval, LLM clients and judge channels are the same objects the sequential engine uses.
-Only the control flow differs:
+Control flow lives in the graph; everything below the orchestration layer is shared with the rest of
+the package — parser, rules engine, the four agents, storage, retrieval, LLM clients and judge
+channels:
 
     START -> classify -> (spam? -> schedule) -> retrieve -> draft -> review -> (revise loop | finalize)
             finalize -> schedule -> persist -> END
 
-The three branches the sequential version hard-codes are now explicit graph edges:
+The branches are explicit edges:
   * spam short-circuit        (classify -> schedule, no retrieval/draft/review)
   * rewrite loop              (review -> revise -> review, capped by `max_rewrites`)
   * per-email error isolation (any node failure routes straight to END with `status="error"`)
 
-`langgraph` (which pulls `langchain-core`) is an optional dependency: import this module only when the
-graph engine is selected, so the default install stays stdlib-only.
+`langgraph` is the one runtime dependency (it pulls `langchain-core`). Export the topology with
+`python email-agent.py graph`; the compiled graph is also checked in as `docs/graph.mmd`.
 
 State is plain dictionaries/TypedDict so that checkpointing works (LangGraph serialises state through
 msgpack) — the richer dataclasses are reconstructed inside the nodes.
@@ -125,7 +124,7 @@ def _dump(agent: AgentState) -> dict[str, Any]:
 
 
 class GraphOrchestrator:
-    """LangGraph implementation of the orchestrator, with the same public API as `Orchestrator`."""
+    """The pipeline as a compiled LangGraph state graph (one email per invocation)."""
 
     def __init__(
         self,
