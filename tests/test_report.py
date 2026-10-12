@@ -4,14 +4,14 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from email_agent.config import load_settings  # noqa: E402
-from email_agent.report import PRIORITY_ORDER, build_report  # noqa: E402
+from email_agent.report import PRIORITY_ORDER, build_report, idle_note  # noqa: E402
 
 NOW = datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc)
 ISOLATED_KEYS = (
@@ -36,6 +36,15 @@ class ReportTests(unittest.TestCase):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+    def test_idle_note_reads_the_heartbeat(self) -> None:
+        """A quiet database must be distinguishable from a dead watcher."""
+        self.assertEqual(idle_note(None, NOW), "no activity yet")
+        self.assertEqual(idle_note((NOW - timedelta(seconds=12)).isoformat(), NOW), "last update 12s ago")
+        self.assertEqual(idle_note((NOW - timedelta(minutes=3)).isoformat(), NOW),
+                         "idle for 3m — no new email (is the watcher running?)")
+        self.assertEqual(idle_note((NOW - timedelta(hours=2)).isoformat(), NOW),
+                         "idle for 2h — no new email (is the watcher running?)")
 
     def test_on_email_streams_progress(self) -> None:
         """The UI shows each email as it finishes (instead of a frozen spinner)."""

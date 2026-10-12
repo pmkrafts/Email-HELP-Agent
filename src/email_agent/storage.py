@@ -271,6 +271,11 @@ class Repository:
         ).fetchall()
         return {r["s"]: r["n"] for r in rows}
 
+    def latest_updated_at(self) -> str | None:
+        """When the database last changed — the live view's heartbeat (None when empty)."""
+        row = self.conn.execute("SELECT MAX(updated_at) AS t FROM emails").fetchone()
+        return row["t"] if row and row["t"] else None
+
     def stalled_rows(self, older_than_seconds: int = 120, limit: int = 20) -> list[dict]:
         """Emails left in `processing` for too long (a crashed watcher must be visible, not silent)."""
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)).isoformat()

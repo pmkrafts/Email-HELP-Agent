@@ -104,6 +104,30 @@ def _row(state: AgentState) -> dict:
     }
 
 
+def idle_note(newest_iso: str | None, now: datetime | None = None) -> str:
+    """Human line for the live view: how long ago the database last changed.
+
+    A quiet database is normal (nothing left to process) — but the user must be able to tell
+    "idle" from "nothing is watching", so the note names the watcher when it goes quiet.
+    """
+    if not newest_iso:
+        return "no activity yet"
+    now = now or datetime.now(timezone.utc)
+    try:
+        newest = datetime.fromisoformat(newest_iso)
+    except ValueError:
+        return f"last update {newest_iso}"
+    if newest.tzinfo is None:
+        newest = newest.replace(tzinfo=timezone.utc)
+    seconds = max(0, int((now - newest).total_seconds()))
+    if seconds < 60:
+        return f"last update {seconds}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"idle for {minutes}m — no new email (is the watcher running?)"
+    return f"idle for {minutes // 60}h — no new email (is the watcher running?)"
+
+
 def build_report(
     input_dir: str | Path,
     settings: Settings,

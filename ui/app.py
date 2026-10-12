@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
-from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
+from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report, idle_note  # noqa: E402
 from email_agent.storage import Repository  # noqa: E402
 
 BATCHES = {
@@ -100,13 +100,11 @@ def sidebar() -> dict:
         limit = st.sidebar.slider("Max emails in this run", 1, 120, 10)
     if tier != TIERS[0]:
         st.sidebar.caption("LLM tiers bill per email: rules ~0 calls, GPT ~3, JEV ~1-2 cheap calls.")
-    run = st.sidebar.button("Run pipeline", type="primary")
-
     st.sidebar.divider()
     live = st.sidebar.checkbox(
         "Live mode (auto-refresh)", value=False,
         help="Watch the database a running watcher writes to: "
-             "python email-agent.py watch --input data/inbox",
+             "python email-agent.py --db storage/live.db watch --input data/inbox",
     )
     live_interval = 2
     live_db = str(ROOT / "storage" / "agent.db")
@@ -114,6 +112,10 @@ def sidebar() -> dict:
         live_interval = st.sidebar.selectbox("Refresh every", [1, 2, 5], index=1,
                                              format_func=lambda seconds: f"{seconds}s")
         live_db = st.sidebar.text_input("Watcher database", value=live_db)
+
+    st.sidebar.divider()
+    run = st.sidebar.button("Run pipeline", type="primary", disabled=live,
+                            help="Live mode is on — untick it to run a batch" if live else None)
 
     apply_env(tier, refine_mode)
     settings = load_settings(None)
@@ -213,8 +215,9 @@ LIVE_STAGE_COLOURS = {
 
 def live_board(counts: dict[str, int], summary: dict, stalled: list[dict]) -> None:
     """Status board: where every email currently sits, plus the confidence averages."""
-    columns = st.columns(len(LIVE_STAGES) + 1)
-    for column, stage in zip(columns, LIVE_STAGES):
+    stages = [*LIVE_STAGES, "legacy"] if counts.get("legacy") else list(LIVE_STAGES)
+    columns = st.columns(len(stages) + 1)
+    for column, stage in zip(columns, stages):
         column.metric(stage.capitalize(), counts.get(stage, 0))
     columns[-1].metric("Emails seen", sum(counts.values()))
     if stalled:
@@ -274,11 +277,16 @@ def live_panel(db_path: str, interval: int) -> None:
         counts = repo.status_counts()
         summary = repo.summary()
         stalled = repo.stalled_rows()
+        heartbeat = repo.latest_updated_at()
     finally:
         repo.close()
 
+    legacy = sum(1 for row in rows if not row.get("status"))
     st.caption(f"Live · watching `{db_path}` · refreshing every {interval}s · "
-               f"{sum(counts.values())} email(s) seen")
+               f"{sum(counts.values())} email(s) seen · {idle_note(heartbeat)}")
+    if legacy:
+        st.caption(f"{legacy} row(s) here predate the live view (no stage recorded) — "
+                   "reprocess them with `--force` to see their stages.")
     if not rows:
         st.info(
             "Nothing yet. Start the watcher in a terminal, then drop an email into the folder:\n\n"
@@ -498,8 +506,9 @@ def main() -> None:
                "at every step. Dispatch times are recorded; nothing is sent.")
 
     if controls["live"]:
-        st.caption("Live mode — the console reads the database a watcher writes to; no batch is run "
-                   "from here. Untick **Live mode** in the sidebar to review a batch instead.")
+        st.caption("Live mode — the console reads the database a watcher writes to, and **Run pipeline "
+                   "is disabled** while this is on. Untick **Live mode** in the sidebar to run a batch "
+                   "instead.")
         live_section(controls["live_db"], controls["live_interval"])
         graph_panel()
         return

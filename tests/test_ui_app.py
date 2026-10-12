@@ -95,6 +95,10 @@ class UiSmokeTests(unittest.TestCase):
             shown = " ".join(item.value for item in app.info)
             self.assertIn("watch --input data/inbox", shown)
             self.assertIn("--force", shown)
+            # the Run button must be visibly disabled in live mode (it does nothing there)
+            run_button = next(button for button in app.sidebar.button if "Run pipeline" in button.label)
+            self.assertTrue(run_button.disabled)
+            self.assertTrue(any("is disabled" in caption.value for caption in app.caption))
 
     def test_live_mode_shows_rows_from_the_watcher_database(self) -> None:
         """Seed a database the way the watcher does, then point the console at it."""
@@ -121,6 +125,8 @@ class UiSmokeTests(unittest.TestCase):
             self.assertIn("Thank you - warranty claim sorted in 10 min", body)
             self.assertIn("scheduled", body)
             self.assertIn("classification 0.", body)   # the confidence score is on screen
+            self.assertTrue("last update" in body or "idle for" in body,
+                            [item.value for item in app.caption])
 
     def test_missing_langgraph_shows_the_install_hint(self) -> None:
         """Without langgraph the run must surface the install hint, not a traceback."""
