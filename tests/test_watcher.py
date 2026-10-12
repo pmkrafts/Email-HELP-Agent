@@ -119,6 +119,18 @@ class SweepTests(_WatcherFixture):
         self.assertEqual(self.watch(once=True), [])
         self.assertEqual(self.repo.status_counts(), {"processing": 1})
 
+    def test_process_once_and_stored_files(self) -> None:
+        """What the console's live tick and its reprocess button call."""
+        self.drop("a.eml")
+        result = watcher.process_once(self.settings, self.inbox, repo=self.repo, limit=5)
+        self.assertEqual(len(result.processed), 1)
+        files = watcher.stored_files(self.repo)
+        self.assertEqual([path.name for path in files], ["a.eml"])
+
+        again = watcher.process_once(self.settings, files=files, repo=self.repo, force=True)
+        self.assertEqual(len(again.processed), 1)          # a reprocess upgrades the row
+        self.assertEqual(len(self.repo.live_rows()), 1)
+
     def test_limit_caps_a_sweep(self) -> None:
         self.drop("a.eml", "003_positive_feedback.eml")
         self.drop("b.eml", "011_long_thread_escalation.eml")

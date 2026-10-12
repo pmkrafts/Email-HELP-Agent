@@ -46,15 +46,16 @@ def inbox_files(input_dir: str | Path) -> list[Path]:
 def sweep(
     orchestrator: GraphOrchestrator,
     repo: Repository,
-    input_dir: str | Path,
+    input_dir: str | Path | None = None,
     now: datetime | None = None,
     limit: int | None = None,
     force: bool = False,
+    files: list[Path] | None = None,
 ) -> SweepResult:
-    """One pass over the folder: process new files, report what was skipped or unparsable."""
+    """One pass over a folder (or an explicit file list): process, and report skips and errors."""
     processed_ids = repo.processed_message_ids()
     result = SweepResult()
-    for path in inbox_files(input_dir):
+    for path in files if files is not None else inbox_files(input_dir or ""):
         if limit is not None and len(result.processed) >= limit:
             break
         try:
@@ -71,6 +72,37 @@ def sweep(
         result.processed.append(orchestrator.process(email, now=now))
         processed_ids.add(email.message_id)
     return result
+
+
+def process_once(
+    settings: Settings,
+    input_dir: str | Path | None = None,
+    now: datetime | None = None,
+    limit: int | None = None,
+    force: bool = False,
+    files: list[Path] | None = None,
+    repo: Repository | None = None,
+    logger: RunLogger | None = None,
+    orchestrator: GraphOrchestrator | None = None,
+) -> SweepResult:
+    """One sweep with its own repository — what the console's live mode calls on every tick."""
+    owns_repo = repo is None
+    repo = repo if repo is not None else Repository(settings.db_path)
+    try:
+        logger = logger if logger is not None else RunLogger(settings.root / "storage" / "logs")
+        orchestrator = orchestrator if orchestrator is not None else GraphOrchestrator(settings, repo, logger)
+        return sweep(orchestrator, repo, input_dir, now=now, limit=limit, force=force, files=files)
+    finally:
+        if owns_repo:
+            repo.close()
+
+
+def stored_files(repo: Repository, limit: int = 50) -> list[Path]:
+    """The files behind the stored emails that still exist — what a reprocess would re-run."""
+    rows = repo.conn.execute(
+        "SELECT raw_path FROM emails WHERE raw_path IS NOT NULL ORDER BY id LIMIT ?", (limit,)
+    ).fetchall()
+    return [Path(row["raw_path"]) for row in rows if row["raw_path"] and Path(row["raw_path"]).is_file()]
 
 
 def watch(

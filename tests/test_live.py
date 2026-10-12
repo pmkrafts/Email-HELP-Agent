@@ -126,6 +126,23 @@ class StagePersistenceTests(_LiveFixture):
         self.assertEqual(len(self.repo.live_rows(limit=1)), 1)
         self.assertEqual(self.repo.live_rows(since="2999-01-01T00:00:00+00:00"), [])
 
+    def test_live_detail_returns_every_stage(self) -> None:
+        email = parse_file(SAMPLES / "001_angry_refund_legal_threat.eml")
+        GraphOrchestrator(self.settings, repo=self.repo).process(email, now=NOW)
+        detail = self.repo.live_detail(email.message_id)
+        assert detail is not None
+        self.assertEqual(detail["email"]["status"], "scheduled")
+        self.assertEqual(detail["classification"]["priority"], "Critical")
+        self.assertIn("legal_threat", detail["flags"])
+        self.assertTrue(detail["draft"]["draft_text"])
+        self.assertTrue(detail["citations"])
+        self.assertEqual(detail["review"]["status"], "escalate")
+        self.assertEqual(detail["schedule"]["status"], "escalated")
+        stages = {log["agent"] for log in detail["logs"]}
+        self.assertIn("classifier", stages)
+        self.assertIn("scheduler", stages)
+        self.assertIsNone(self.repo.live_detail("no-such-message"))
+
     def test_unparsable_file_is_recorded_once(self) -> None:
         broken = self.tmp / "broken.eml"
         broken.write_text("not an email at all", encoding="utf-8")

@@ -276,6 +276,54 @@ class Repository:
         row = self.conn.execute("SELECT MAX(updated_at) AS t FROM emails").fetchone()
         return row["t"] if row and row["t"] else None
 
+    def live_detail(self, message_id: str) -> dict | None:
+        """Everything the console shows when a live row is opened (one email, all stages)."""
+        email = self.conn.execute(
+            "SELECT id, message_id, subject, from_address, from_name, body_text, raw_path, warnings,"
+            " status, error, updated_at, created_at FROM emails WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        if email is None:
+            return None
+        email_id = int(email["id"])
+        classification = self.conn.execute(
+            "SELECT * FROM classifications WHERE email_id = ? ORDER BY id DESC LIMIT 1", (email_id,)
+        ).fetchone()
+        draft = self.conn.execute(
+            "SELECT * FROM drafts WHERE email_id = ? ORDER BY id DESC LIMIT 1", (email_id,)
+        ).fetchone()
+        review = None
+        if draft is not None:
+            review = self.conn.execute(
+                "SELECT * FROM reviews WHERE draft_id = ? ORDER BY id DESC LIMIT 1", (int(draft["id"]),)
+            ).fetchone()
+        schedule = self.conn.execute(
+            "SELECT * FROM schedules WHERE email_id = ? ORDER BY id DESC LIMIT 1", (email_id,)
+        ).fetchone()
+        logs = self.conn.execute(
+            "SELECT agent, event, latency_ms, created_at, details FROM agent_logs WHERE email_id = ? ORDER BY id",
+            (email_id,),
+        ).fetchall()
+
+        def _json_list(value) -> list:
+            try:
+                parsed = json.loads(value) if value else []
+            except (TypeError, ValueError):
+                return [str(value)]
+            return parsed if isinstance(parsed, list) else [parsed]
+
+        return {
+            "email": dict(email),
+            "classification": dict(classification) if classification else None,
+            "draft": dict(draft) if draft else None,
+            "review": dict(review) if review else None,
+            "schedule": dict(schedule) if schedule else None,
+            "logs": [dict(log) for log in logs],
+            "flags": _json_list(classification["flags"]) if classification else [],
+            "citations": _json_list(draft["citations"]) if draft else [],
+            "issues": _json_list(review["issues"]) if review else [],
+            "warnings": _json_list(email["warnings"]),
+        }
+
     def stalled_rows(self, older_than_seconds: int = 120, limit: int = 20) -> list[dict]:
         """Emails left in `processing` for too long (a crashed watcher must be visible, not silent)."""
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)).isoformat()

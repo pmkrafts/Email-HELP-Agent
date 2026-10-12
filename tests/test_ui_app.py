@@ -87,18 +87,80 @@ class UiSmokeTests(unittest.TestCase):
             app.run()
             next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
             app.run()
-            next(item for item in app.sidebar.text_input if item.label == "Watcher database").set_value(
+            next(item for item in app.sidebar.text_input if item.label == "Database").set_value(
                 str(Path(tmp) / "empty.db")
+            )
+            next(item for item in app.sidebar.text_input if item.label == "Inbox folder").set_value(
+                str(Path(tmp) / "inbox")
             )
             app.run()
             self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
             shown = " ".join(item.value for item in app.info)
-            self.assertIn("watch --input data/inbox", shown)
-            self.assertIn("--force", shown)
+            self.assertIn("Drop an", shown)
             # the Run button must be visibly disabled in live mode (it does nothing there)
             run_button = next(button for button in app.sidebar.button if "Run pipeline" in button.label)
             self.assertTrue(run_button.disabled)
             self.assertTrue(any("is disabled" in caption.value for caption in app.caption))
+
+    def test_live_mode_processes_the_inbox_itself(self) -> None:
+        """The dashboard watches the folder on its own — no separate watcher process needed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            inbox = Path(tmp) / "inbox"
+            inbox.mkdir()
+            shutil.copy(ROOT / "data" / "sample_emails" / "003_positive_feedback.eml", inbox / "a.eml")
+            db_path = Path(tmp) / "self.db"
+
+            app = AppTest.from_file(str(APP), default_timeout=180)
+            app.run()
+            next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
+            app.run()
+            next(item for item in app.sidebar.text_input if item.label == "Database").set_value(str(db_path))
+            next(item for item in app.sidebar.text_input if item.label == "Inbox folder").set_value(str(inbox))
+            app.run()   # this run's tick should pick the file up
+
+            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+            body = " ".join(item.value for item in app.markdown) + " ".join(item.value for item in app.caption)
+            self.assertIn("Thank you - warranty claim sorted in 10 min", body)
+            self.assertIn("last pass: processed 1", body)
+            repo = Repository(db_path)
+            try:
+                self.assertEqual(repo.status_counts(), {"scheduled": 1})
+            finally:
+                repo.close()
+
+    def test_live_row_opens_into_full_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            inbox = Path(tmp) / "inbox"
+            inbox.mkdir()
+            shutil.copy(ROOT / "data" / "sample_emails" / "001_angry_refund_legal_threat.eml", inbox / "a.eml")
+            db_path = Path(tmp) / "detail.db"
+            repo = Repository(db_path)
+            try:
+                watcher.process_once(load_settings(None), inbox, repo=repo)
+            finally:
+                repo.close()
+
+            app = AppTest.from_file(str(APP), default_timeout=180)
+            app.run()
+            next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
+            app.run()
+            next(item for item in app.sidebar.text_input if item.label == "Database").set_value(str(db_path))
+            next(item for item in app.sidebar.text_input if item.label == "Inbox folder").set_value(
+                str(Path(tmp) / "other-inbox")
+            )
+            app.run()
+
+            picker = next(item for item in app.selectbox if item.label == "Open an email for the full detail")
+            picker.set_value(picker.options[1])   # the first real row ("—" is the empty choice)
+            app.run()
+
+            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+            body = " ".join(item.value for item in app.markdown) + " ".join(item.value for item in app.caption)
+            self.assertIn("Classification", body)
+            self.assertIn("Review & schedule", body)
+            self.assertIn("Agent trace", body)
+            self.assertIn("legal_threat", body)          # the signal list
+            self.assertTrue(any(box.value for box in app.text_area), [box.label for box in app.text_area])
 
     def test_live_mode_shows_rows_from_the_watcher_database(self) -> None:
         """Seed a database the way the watcher does, then point the console at it."""
@@ -117,7 +179,10 @@ class UiSmokeTests(unittest.TestCase):
             app.run()
             next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
             app.run()
-            next(item for item in app.sidebar.text_input if item.label == "Watcher database").set_value(str(db_path))
+            next(item for item in app.sidebar.text_input if item.label == "Database").set_value(str(db_path))
+            next(item for item in app.sidebar.text_input if item.label == "Inbox folder").set_value(
+                str(Path(tmp) / "empty-inbox")
+            )
             app.run()
 
             self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])

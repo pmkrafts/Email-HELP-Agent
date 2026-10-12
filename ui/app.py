@@ -22,10 +22,13 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from dataclasses import replace  # noqa: E402
+
 from email_agent import report as _report_module  # noqa: E402
 from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
 from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
 from email_agent.storage import Repository  # noqa: E402
+from email_agent.watcher import inbox_files, process_once, stored_files  # noqa: E402
 
 if not hasattr(_report_module, "idle_note") or not hasattr(Repository, "latest_updated_at"):
     # A long-running Streamlit server keeps imported modules cached: after updating the code the
@@ -114,16 +117,33 @@ def sidebar() -> dict:
         st.sidebar.caption("LLM tiers bill per email: rules ~0 calls, GPT ~3, JEV ~1-2 cheap calls.")
     st.sidebar.divider()
     live = st.sidebar.checkbox(
-        "Live mode (auto-refresh)", value=False,
-        help="Watch the database a running watcher writes to: "
-             "python email-agent.py --db storage/live.db watch --input data/inbox",
+        "Live mode (dashboard)", value=False,
+        help="A live dashboard: watch a folder for new emails and open any row for full detail.",
     )
     live_interval = 2
     live_db = str(ROOT / "storage" / "agent.db")
+    live_inbox = str(ROOT / "data" / "inbox")
+    live_watch = True
+    live_force = False
+    process_now = False
+    reprocess = False
     if live:
+        live_inbox = st.sidebar.text_input("Inbox folder", value=live_inbox,
+                                          help="New .eml/.txt files dropped here are picked up automatically")
+        live_watch = st.sidebar.checkbox(
+            "Process this folder here", value=True,
+            help="Each refresh picks up new files (up to 2 per tick) — no separate watcher process needed",
+        )
+        live_force = st.sidebar.checkbox("Reprocess emails already stored", value=False,
+                                         help="Ignore the already-processed check for files you re-drop")
+        live_db = st.sidebar.text_input("Database", value=live_db,
+                                        help="Where results are written and read (an external watcher can use the same one)")
         live_interval = st.sidebar.selectbox("Refresh every", [1, 2, 5], index=1,
                                              format_func=lambda seconds: f"{seconds}s")
-        live_db = st.sidebar.text_input("Watcher database", value=live_db)
+        process_now = st.sidebar.button("Process the inbox now")
+        stored_count = _stored_file_count(live_db)
+        reprocess = st.sidebar.button(f"Reprocess stored emails ({stored_count})", disabled=stored_count == 0,
+                                      help="Re-run the emails already in this database from their files")
 
     st.sidebar.divider()
     run = st.sidebar.button("Run pipeline", type="primary", disabled=live,
@@ -158,6 +178,11 @@ def sidebar() -> dict:
         "live": live,
         "live_interval": live_interval,
         "live_db": live_db,
+        "live_inbox": live_inbox,
+        "live_watch": live_watch,
+        "live_force": live_force,
+        "process_now": process_now,
+        "reprocess": reprocess,
         "settings": settings,
     }
 
@@ -225,6 +250,22 @@ LIVE_STAGE_COLOURS = {
 }
 
 
+def _stored_file_count(db_path: str) -> int:
+    """How many stored emails still have their source file on disk (what a reprocess would re-run)."""
+    from email_agent.watcher import stored_files
+
+    try:
+        repo = Repository(db_path)
+    except Exception:  # noqa: BLE001 - a bad path just disables the button
+        return 0
+    try:
+        return len(stored_files(repo))
+    except Exception:  # noqa: BLE001
+        return 0
+    finally:
+        repo.close()
+
+
 def live_board(counts: dict[str, int], summary: dict, stalled: list[dict]) -> None:
     """Status board: where every email currently sits, plus the confidence averages."""
     stages = [*LIVE_STAGES, "legacy"] if counts.get("legacy") else list(LIVE_STAGES)
@@ -277,8 +318,96 @@ def live_row(row: dict, is_new: bool) -> None:
                    f"dispatch `{row.get('schedule_status') or '—'}` · send {send_at}")
 
 
-def live_panel(db_path: str, interval: int) -> None:
-    """The real-time view: everything a running watcher has written to the database so far."""
+def _watch_tick(settings, inbox_dir: str, force: bool, cap: int = 2) -> None:
+    """Pick up new files from the folder on each refresh — the in-console watcher.
+
+    Cheap when idle: the folder's file count + newest mtime are compared with the previous tick, so
+    nothing is parsed unless something changed.
+    """
+    try:
+        files = inbox_files(inbox_dir)
+    except Exception as exc:  # noqa: BLE001 - a bad folder must not kill the dashboard
+        st.warning(f"Cannot read `{inbox_dir}`: {exc}")
+        return
+    stamp = (len(files), max((path.stat().st_mtime for path in files), default=0.0))
+    if st.session_state.get("live_folder_stamp") == stamp:
+        return
+    st.session_state["live_folder_stamp"] = stamp
+    if not files:
+        return
+    try:
+        result = process_once(settings, inbox_dir, limit=cap, force=force)
+    except Exception as exc:  # noqa: BLE001 - one bad file must not stop the dashboard
+        st.warning(f"Processing failed: {type(exc).__name__}: {exc}")
+        return
+    st.session_state["live_tick"] = (
+        f"processed {len(result.processed)} · skipped {len(result.skipped)} · errors {len(result.errors)}"
+    )
+
+
+def live_detail_panel(detail: dict) -> None:
+    """Full detail for one live row: classification, draft, review, schedule and the trace."""
+    email = detail["email"]
+    classification = detail["classification"] or {}
+    review = detail["review"] or {}
+    schedule = detail["schedule"] or {}
+    draft = detail["draft"] or {}
+    st.markdown(f"### {email['subject'] or '(no subject)'}")
+    st.caption(f"`{email['status'] or 'legacy'}` · {email['from_name'] or ''} "
+               f"<{email['from_address'] or ''}> · updated {fmt_time(email.get('updated_at'))}")
+    if email.get("error"):
+        st.error(email["error"])
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Classification**")
+        st.markdown(
+            f"- priority `{classification.get('priority') or '—'}` · score {classification.get('priority_score') or '—'}\n"
+            f"- sentiment `{classification.get('sentiment') or '—'}` · urgency `{classification.get('urgency') or '—'}`\n"
+            f"- confidence {classification.get('confidence') if classification.get('confidence') is not None else '—'}"
+            f" · engine `{classification.get('engine') or '—'}`\n"
+            f"- judge `{classification.get('judge_verdict') or '—'}` · category `{classification.get('category') or '—'}`"
+        )
+        st.caption("Signals: " + (", ".join(f"`{flag}`" for flag in detail["flags"]) or "—"))
+        if classification.get("reasoning"):
+            st.caption(classification["reasoning"])
+    with right:
+        st.markdown("**Review & schedule**")
+        st.markdown(
+            f"- review `{review.get('status') or '—'}` · final confidence "
+            f"{review.get('final_confidence') if review.get('final_confidence') is not None else '—'}\n"
+            f"- dispatch `{schedule.get('status') or '—'}` · send {fmt_time(schedule.get('send_at'))}\n"
+            f"- reason: {schedule.get('reason') or '—'}"
+        )
+        if detail["issues"]:
+            st.caption("Issues: " + "; ".join(str(issue) for issue in detail["issues"]))
+
+    if draft.get("draft_text"):
+        st.text_area("Draft reply", draft["draft_text"], height=220, disabled=True,
+                     key=f"live_draft_{email['message_id']}")
+        st.caption(f"Draft confidence {draft.get('confidence')} · tone `{draft.get('tone')}` · "
+                   f"language `{draft.get('language')}` · version {draft.get('version')} · citations: "
+                   + (", ".join(f"`{citation}`" for citation in detail["citations"]) or "—"))
+    if detail["logs"]:
+        st.markdown("**Agent trace**")
+        st.dataframe(
+            [
+                {"stage": log["agent"], "event": log["event"], "latency_ms": log["latency_ms"],
+                 "at": fmt_time(log["created_at"])}
+                for log in detail["logs"]
+            ],
+            hide_index=True,
+        )
+    if email.get("body_text"):
+        with st.expander("Incoming email"):
+            st.text(email["body_text"][:4000])
+
+
+def live_panel(db_path: str, interval: int, settings, inbox_dir: str, watch_here: bool, force: bool) -> None:
+    """The live dashboard: watch the folder, then show everything the database holds."""
+    if watch_here:
+        _watch_tick(settings, inbox_dir, force=force)
+
     try:
         repo = Repository(db_path)
     except Exception as exc:  # noqa: BLE001 - a bad path must not crash the console
@@ -293,18 +422,21 @@ def live_panel(db_path: str, interval: int) -> None:
     finally:
         repo.close()
 
+    tick = st.session_state.get("live_tick")
     legacy = sum(1 for row in rows if not row.get("status"))
     st.caption(f"Live · watching `{db_path}` · refreshing every {interval}s · "
-               f"{sum(counts.values())} email(s) seen · {idle_note(heartbeat)}")
+               f"{sum(counts.values())} email(s) seen · {idle_note(heartbeat)}"
+               + (f" · last pass: {tick}" if tick else ""))
     if legacy:
         st.caption(f"{legacy} row(s) here predate the live view (no stage recorded) — "
-                   "reprocess them with `--force` to see their stages.")
+                   "use **Reprocess stored emails** in the sidebar to give them stages.")
     if not rows:
         st.info(
-            "Nothing yet. Start the watcher in a terminal, then drop an email into the folder:\n\n"
-            f"```\npython email-agent.py --db {db_path} watch --input data/inbox\n```\n\n"
-            "Already-processed emails are skipped by design — add `--force`, or point the watcher at "
-            "a fresh database."
+            "Nothing yet. Drop an `.eml`/`.txt` file into the inbox folder and it will be picked up "
+            "here automatically:\n\n"
+            f"```\n{inbox_dir}\n```\n\n"
+            "The sidebar can also point at a database an external watcher writes to "
+            "(`python email-agent.py --db … watch --input …`)."
         )
         return
 
@@ -318,15 +450,36 @@ def live_panel(db_path: str, interval: int) -> None:
     if newest:
         st.session_state["live_last_seen"] = newest
 
+    options: dict[str, str] = {}
+    for row in rows:
+        label = f"{row.get('subject') or '(no subject)'} — {row.get('status') or 'legacy'}"
+        while label in options:  # keep the selectbox keys unique
+            label += " "
+        options[label] = row["message_id"]
+    picked = st.selectbox("Open an email for the full detail", ["—", *options], index=0)
+    if picked != "—":
+        try:
+            repo = Repository(db_path)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Cannot open `{db_path}`: {exc}")
+            return
+        try:
+            detail = repo.live_detail(options[picked])
+        finally:
+            repo.close()
+        if detail:
+            st.divider()
+            live_detail_panel(detail)
 
-def live_section(db_path: str, interval: int) -> None:
-    """Run the live panel as an auto-refreshing fragment — the rest of the page stays put.
+
+def live_section(db_path: str, interval: int, settings, inbox_dir: str, watch_here: bool, force: bool) -> None:
+    """Run the live dashboard as an auto-refreshing fragment — the rest of the page stays put.
 
     Streamlit older than 1.37 has no `st.fragment(run_every=…)`; those installs get a manual
     refresh button instead of an error.
     """
     def render() -> None:
-        live_panel(db_path, interval)
+        live_panel(db_path, interval, settings, inbox_dir, watch_here, force)
 
     fragment = getattr(st, "fragment", None)
     if fragment is not None:
@@ -518,10 +671,26 @@ def main() -> None:
                "at every step. Dispatch times are recorded; nothing is sent.")
 
     if controls["live"]:
-        st.caption("Live mode — the console reads the database a watcher writes to, and **Run pipeline "
-                   "is disabled** while this is on. Untick **Live mode** in the sidebar to run a batch "
-                   "instead.")
-        live_section(controls["live_db"], controls["live_interval"])
+        st.caption("Live dashboard — new emails in the inbox folder are picked up automatically, and any "
+                   "row below opens into its full detail. **Run pipeline** is disabled in this mode.")
+        live_settings = replace(controls["settings"], db_path=Path(controls["live_db"]))
+        if controls["process_now"]:
+            with st.spinner("Processing the inbox…"):
+                result = process_once(live_settings, controls["live_inbox"], limit=10,
+                                      force=controls["live_force"])
+            st.success(f"Processed {len(result.processed)} · skipped {len(result.skipped)} · "
+                       f"errors {len(result.errors)}")
+        if controls["reprocess"]:
+            with st.spinner("Reprocessing the stored emails…"):
+                repo = Repository(controls["live_db"])
+                try:
+                    files = stored_files(repo)
+                finally:
+                    repo.close()
+                result = process_once(live_settings, files=files, limit=20, force=True)
+            st.success(f"Reprocessed {len(result.processed)} of {len(files)} stored file(s).")
+        live_section(controls["live_db"], controls["live_interval"], live_settings,
+                     controls["live_inbox"], controls["live_watch"], controls["live_force"])
         graph_panel()
         return
 

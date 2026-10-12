@@ -108,15 +108,20 @@ The UI is a view layer only: `src/email_agent/report.py` builds the view-model (
 and the app calls the same engine as the CLI. Headless rendering is covered by
 `tests/test_ui_app.py` using Streamlit's `AppTest`.
 
-**Live mode.** The console can follow an inbox instead of running a batch. One process watches the
-folder and writes every stage to SQLite; the sidebar's *Live mode* toggle polls that database
-(1/2/5 s) and shows a status board (`processing → classified → drafted → reviewed → scheduled`, or
-`error`), the newest emails first with their confidence scores, draft previews, dispatch buckets and
-error rows:
+**Live dashboard.** Tick *Live mode (dashboard)* and the console watches an inbox folder itself: new
+`.eml`/`.txt` files are processed as they appear (up to two per refresh, no separate watcher needed),
+the status board moves them through `processing → classified → drafted → reviewed → scheduled`, and
+any row opens into its full detail — classification with score/signals/reasoning, the draft with
+citations, review issues, dispatch reason and the agent trace. Sidebar actions: **Process the inbox
+now**, **Reprocess emails already stored** (for files you re-drop) and **Reprocess stored emails (N)**
+(re-runs what is already in the database — that is how rows written before this feature get stages).
+
+A headless watcher is available for cron or another machine, and the console can point at its database
+instead:
 
 ```bash
-python email-agent.py --db storage/live.db watch --input data/inbox   # terminal 1
-streamlit run ui/app.py                                               # terminal 2 → tick "Live mode"
+python email-agent.py --db storage/live.db watch --input data/inbox   # terminal 1 (optional)
+streamlit run ui/app.py                                               # terminal 2 → Live mode
 ```
 
 ## Orchestration (LangGraph)

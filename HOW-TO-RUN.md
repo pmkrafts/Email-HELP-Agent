@@ -55,21 +55,30 @@ tiers are used and you pay per call; without keys everything stays offline.
 `--input <dir>`, `--with-llm`, `--with-judge`, `--now <iso>`, `--skip-tests --skip-eval`
 (`python run.py --help`).
 
-## 3. Live mode (watch an inbox in real time)
+## 3. Live dashboard (watch an inbox in real time)
 
-The console can follow a folder instead of running a batch: one process watches for new emails, and
-the UI shows each one arrive, advance through the stages and end up scheduled — no reload needed.
+Tick **Live mode (dashboard)** in the sidebar and the console becomes a live dashboard: it watches a
+folder itself, processes new emails as they appear, and shows each one advancing through the stages —
+no second terminal required.
+
+1. Tick **Live mode (dashboard)** (the *Run pipeline* button is disabled in this mode).
+2. Set **Inbox folder** (default `data/inbox`) and **Database** (default `storage/agent.db`).
+3. Leave **Process this folder here** ticked — every refresh picks up new files (up to 2 per tick).
+4. Drop a `.eml`/`.txt` file into the folder. It appears as `Processing`, moves to `Scheduled`, and
+   shows its classification, draft and final confidence scores plus a draft preview.
+5. Pick it under **Open an email for the full detail** to see the classification (score, signals,
+   reasoning), the draft with citations, the review issues, the dispatch reason and the agent trace.
+
+Sidebar extras: **Process the inbox now** (an immediate pass over the folder), **Reprocess emails
+already stored** (ignore the already-processed check for files you re-drop) and **Reprocess stored
+emails (N)** — one click re-runs the emails already in the database from their files, which is how
+rows written before this feature get their stages.
+
+Prefer a headless watcher (cron, another machine, no browser)? The same logic is a command:
 
 ```bash
-pip install -r requirements.txt "streamlit>=1.37"                     # once
-python email-agent.py --db storage/live.db watch --input data/inbox   # terminal 1
-streamlit run ui/app.py                                               # terminal 2
+python email-agent.py --db storage/live.db watch --input data/inbox   # then point the sidebar at that database
 ```
-
-In the sidebar tick **Live mode (auto-refresh)**, set the refresh interval and the database the
-watcher writes to (`storage/live.db` above), then drop a `.eml`/`.txt` file into `data/inbox`. It
-appears as `Processing`, moves to `Scheduled`, and shows its classification, draft and final
-confidence scores plus a draft preview; new rows are badged `NEW`.
 
 The watcher parses the folder oldest-first, skips what is already stored (idempotent by `message_id`),
 claims each email so a second watcher cannot double-process it, and writes every stage to SQLite as it
@@ -78,16 +87,9 @@ completes. A file that cannot be parsed is recorded once as an `error` row and t
 `--limit` caps a sweep.
 
 **If nothing appears:** the emails are probably already in that database (the watcher reports
-`skipped N file(s) already stored`). Use `--force` to process them again, or point both sides at a
-fresh database:
-
-```bash
-python email-agent.py --db storage/live.db watch --input data/inbox --force
-# then set "Watcher database" to storage/live.db in the sidebar
-```
-
-The live view needs Streamlit ≥ 1.37 (fragments); older installs show a manual **Refresh now** button
-instead of auto-refresh.
+`skipped N file(s) already stored`). Tick **Reprocess emails already stored**, or press **Reprocess
+stored emails (N)**. The live view needs Streamlit ≥ 1.37 (fragments); older installs show a manual
+**Refresh now** button instead of auto-refresh.
 
 ## 4. How the engine works (LangGraph)
 
