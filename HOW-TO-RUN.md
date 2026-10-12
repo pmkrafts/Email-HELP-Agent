@@ -3,6 +3,7 @@
 Everything in this guide is verified against the current repo state (**71 tests**).
 One dependency: **LangGraph** — the orchestrator is a state graph (`src/email_agent/graph.py`).
 No API key is needed: the default mode is the offline rules engine; GPT/JEV tiers are optional (§5).
+Two ways in: the one-command runner (§1) or the Streamlit console (§2) — both run the same engine.
 No email is ever sent — dispatch times are recorded, never transmitted.
 
 ---
@@ -14,6 +15,14 @@ No email is ever sent — dispatch times are recorded, never transmitted.
 | Any (recommended) | `pip install -r requirements.txt`, then `python run.py` |
 | Windows cmd | `run.bat` (after the install above) |
 | Git Bash / POSIX | `./run.sh` (after the install above) |
+
+Prefer the browser? The same pipeline runs in the Streamlit console on the same LangGraph engine —
+see §2:
+
+```bash
+pip install streamlit        # optional, one extra package
+streamlit run ui/app.py      # http://localhost:8501
+```
 
 That single command runs the whole project: environment check → unit tests → pipeline over the
 golden-set emails → agreement evaluation against the labels. It reads `.env` automatically, so if you
@@ -84,7 +93,48 @@ or LangGraph not installed).
 
 ---
 
-## 2. Manual commands (same pipeline, finer control)
+## 2. The Streamlit UI (same LangGraph engine)
+
+The console is a view layer over the same pipeline: it builds the report with the same
+`GraphOrchestrator`, the same agents and the same model tiers as the CLI. The sidebar shows what it
+is running (`engine: graph`), and the compiled topology is rendered in an expander.
+
+```bash
+pip install streamlit        # optional dependency, install once
+streamlit run ui/app.py      # http://localhost:8501
+```
+
+Sidebar: pick a batch (12 / 20 / 100 bundled emails, or upload your own `.eml`/`.txt`), choose the
+model tiers (**Rules only** is free and offline; **GPT refinement** / **GPT + JEV judge** use the
+keys from `.env`), optionally cap the run — **"Process the entire batch" is on by default** — then
+press **Run pipeline**.
+
+```
+Tier status                          Main area
+• engine: graph                      Emails processed 12 · 0 failed · avg confidence 0.75
+• primary: none — off                Critical + High 5 · Scheduled 10 (junk 1 / escalated 1)
+• judge: none — off                  ▸ LangGraph topology (Mermaid source of the compiled graph)
+• refine mode: always                1 email(s) need a human: 001_angry_refund_legal_threat.eml
+```
+
+Main area: metrics (priority mix, both average confidences, scheduled / junk / escalated /
+pending_human, judge verdicts) · a requirement-coverage expander · the compiled LangGraph topology ·
+filters · and a **view switcher**:
+
+| View | Shows |
+|---|---|
+| `Table + inspector` | all emails in one sortable table (includes a draft preview column) plus a detail panel for the selected email |
+| `All emails (full content)` | every matching email rendered in sequence — each expander holds all six sections, nothing hidden behind a selection |
+| `Drafts only` | every drafted reply in full, with confidence, tone, language, citations and review issues |
+| `Dispatch schedule` | the dispatch plan grouped by bucket — **scheduled** (sorted by send time, with the next dispatch at the top), **pending human review**, **escalated**, **junk** — each row showing send time, priority, review status, subject, sender and the scheduler's reason |
+
+Per email the six tabs are: **Incoming email** · **Classification** (priority, score, sentiment,
+urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** · **Draft response** ·
+**Review & schedule** (`send_at` + reason; nothing is transmitted) · **Agent trace** (per-stage
+status and latency). Results export as JSON with one click. After changing a source file, press
+**R** in the browser (or refresh) to rerun the app.
+
+## 3. Manual commands (same pipeline, finer control)
 
 ```bash
 python email-agent.py check                                # live ping of both model tiers
@@ -92,7 +142,7 @@ python email-agent.py run --input data/sample_emails --now 2026-10-12T09:00:00+0
 python email-agent.py view --priority Critical             # rows: priority, sentiment, conf, review, dispatch, judge
 python email-agent.py summary                              # aggregate stats from the database
 python email-agent.py eval --show-misses                   # score all three labelled batches
-python email-agent.py graph --out docs/graph.mmd           # export the compiled topology (§3)
+python email-agent.py graph --out docs/graph.mmd           # export the compiled topology (§4)
 ```
 
 - Top-level options: `--db <path>` (default `storage/agent.db`), `--llm <provider>` (`none`, `openai`, …).
@@ -107,7 +157,7 @@ python email-agent.py graph --out docs/graph.mmd           # export the compiled
 
 ---
 
-## 3. Orchestration (LangGraph)
+## 4. Orchestration (LangGraph)
 
 The pipeline is a LangGraph `StateGraph` (`src/email_agent/graph.py`). Parser, rules engine, the four
 agents, retrieval, SQLite storage, prompts and the model tiers are ordinary Python; the control flow
@@ -143,35 +193,6 @@ read back with `GraphOrchestrator.snapshot(message_id)`. That is the hook for hu
 
 If LangGraph is missing, every entry point says so instead of failing halfway through a batch:
 `error: needs LangGraph: pip install langgraph  (or: pip install -r requirements.txt)` (exit code 2).
-
-## 4. The Streamlit UI
-
-```bash
-pip install streamlit        # optional dependency, install once
-streamlit run ui/app.py      # http://localhost:8501
-```
-
-Sidebar: pick a batch (12 / 20 / 100 bundled emails, or upload your own `.eml`/`.txt`), choose the
-model tiers (**Rules only** is free and offline; **GPT refinement** / **GPT + JEV judge** use the
-keys from `.env`), optionally cap the run — **"Process the entire batch" is on by default** — then
-press **Run pipeline**.
-
-Main area: metrics (priority mix, both average confidences, scheduled / junk / escalated /
-pending_human, judge verdicts) · a requirement-coverage expander · the compiled LangGraph topology ·
-filters · and a **view switcher**:
-
-| View | Shows |
-|---|---|
-| `Table + inspector` | all emails in one sortable table (includes a draft preview column) plus a detail panel for the selected email |
-| `All emails (full content)` | every matching email rendered in sequence — each expander holds all six sections, nothing hidden behind a selection |
-| `Drafts only` | every drafted reply in full, with confidence, tone, language, citations and review issues |
-| `Dispatch schedule` | the dispatch plan grouped by bucket — **scheduled** (sorted by send time, with the next dispatch at the top), **pending human review**, **escalated**, **junk** — each row showing send time, priority, review status, subject, sender and the scheduler's reason |
-
-Per email the six tabs are: **Incoming email** · **Classification** (priority, score, sentiment,
-urgency, confidence, signals, scoring reasoning) · **Retrieved context (RAG)** · **Draft response** ·
-**Review & schedule** (`send_at` + reason; nothing is transmitted) · **Agent trace** (per-stage
-status and latency). Results export as JSON with one click. After changing a source file, press
-**R** in the browser (or refresh) to rerun the app.
 
 ## 5. Model tiers (rules → judge → primary)
 
@@ -251,6 +272,8 @@ Runtime state is gitignored; `run.py` recreates its database on every run.
 |---|---|
 | `python3` opens the Microsoft Store | Use `python` (or `run.bat`); `run.sh` already probes interpreters itself |
 | `LangGraph is required - install it` (runner) or `needs LangGraph: pip install langgraph` (CLI/UI) | `pip install -r requirements.txt` (or `pip install langgraph`) |
+| `streamlit: command not found` | `pip install streamlit` — optional; the pipeline and CLI never need it |
+| Port 8501 already in use | `streamlit run ui/app.py --server.port 8502` (or any free port) |
 | `input directory not found` | Run from the repo root, or pass `--input <absolute path>` |
 | `no text and no html body` in UI parser notes | Expected for the deliberately empty sample; other files should parse cleanly |
 | `judge: error` on an email | Run `python email-agent.py check`; the classification reasoning carries the HTTP reason. Cloudflare's `403 / error 1010` (bare Python User-Agent) is fixed in the client — if it reappears, the key or base URL is wrong |
