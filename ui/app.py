@@ -22,9 +22,21 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from email_agent import report as _report_module  # noqa: E402
 from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
-from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report, idle_note  # noqa: E402
+from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
 from email_agent.storage import Repository  # noqa: E402
+
+if not hasattr(_report_module, "idle_note") or not hasattr(Repository, "latest_updated_at"):
+    # A long-running Streamlit server keeps imported modules cached: after updating the code the
+    # script re-runs against the old package. Say what to do instead of raising ImportError.
+    st.error(
+        "This console is holding an older `email_agent` in memory (Streamlit caches imported "
+        "modules). Restart it: **Ctrl-C** in the terminal, then `streamlit run ui/app.py`."
+    )
+    st.stop()
+
+idle_note = _report_module.idle_note
 
 BATCHES = {
     "Golden set — 12 hand-written emails": ROOT / "data" / "sample_emails",

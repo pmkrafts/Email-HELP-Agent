@@ -140,5 +140,6 @@ under `storage/logs/`); `run.py` rebuilds `storage/run-demo.db` on every run.
 | `input directory not found` | Run from the repo root, or pass an absolute `--input` path |
 | Emails sit at `pending_human` | Review outcome, not a failure: the judge flagged the draft (see the Review & schedule tab) — enable the GPT tier so drafts can be rewritten automatically |
 | `judge: error` on an email | `python email-agent.py check`; the classification reasoning carries the HTTP reason |
+| `ImportError: cannot import name …` (or the console says it holds an older `email_agent`) | Restart the console: **Ctrl-C**, then `streamlit run ui/app.py`. Streamlit re-runs the script but keeps imported modules cached, so a server started before an update keeps the old code in memory |
 | `.env` edits seem ignored | Reloaded per command; in the UI press **R**/refresh |
 | Want a clean slate | Delete `storage/` — it is rebuilt on the next run |
