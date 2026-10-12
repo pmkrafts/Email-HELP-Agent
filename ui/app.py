@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from email_agent.config import ENGINE_NAME, load_settings  # noqa: E402
 from email_agent.report import PRIORITY_ORDER, REQUIREMENTS_COVERAGE, build_report  # noqa: E402
+from email_agent.storage import Repository  # noqa: E402
 
 BATCHES = {
     "Golden set — 12 hand-written emails": ROOT / "data" / "sample_emails",
@@ -101,6 +102,19 @@ def sidebar() -> dict:
         st.sidebar.caption("LLM tiers bill per email: rules ~0 calls, GPT ~3, JEV ~1-2 cheap calls.")
     run = st.sidebar.button("Run pipeline", type="primary")
 
+    st.sidebar.divider()
+    live = st.sidebar.checkbox(
+        "Live mode (auto-refresh)", value=False,
+        help="Watch the database a running watcher writes to: "
+             "python email-agent.py watch --input data/inbox",
+    )
+    live_interval = 2
+    live_db = str(ROOT / "storage" / "agent.db")
+    if live:
+        live_interval = st.sidebar.selectbox("Refresh every", [1, 2, 5], index=1,
+                                             format_func=lambda seconds: f"{seconds}s")
+        live_db = st.sidebar.text_input("Watcher database", value=live_db)
+
     apply_env(tier, refine_mode)
     settings = load_settings(None)
     st.sidebar.subheader("Tier status")
@@ -127,6 +141,9 @@ def sidebar() -> dict:
         "limit": limit,
         "run": run,
         "tier": tier,
+        "live": live,
+        "live_interval": live_interval,
+        "live_db": live_db,
         "settings": settings,
     }
 
@@ -185,6 +202,105 @@ def graph_panel() -> None:
         return
     with st.expander("LangGraph topology (Mermaid source of the compiled graph)", expanded=False):
         st.code(diagram, language="mermaid")
+
+
+LIVE_STAGES = ["processing", "classified", "drafted", "reviewed", "scheduled", "error"]
+LIVE_STAGE_COLOURS = {
+    "processing": "#6b7280", "classified": "#3b6fb5", "drafted": "#7a5fb5",
+    "reviewed": "#3f8f4f", "scheduled": "#3f8f4f", "error": "#d64545", "legacy": "#6b7280",
+}
+
+
+def live_board(counts: dict[str, int], summary: dict, stalled: list[dict]) -> None:
+    """Status board: where every email currently sits, plus the confidence averages."""
+    columns = st.columns(len(LIVE_STAGES) + 1)
+    for column, stage in zip(columns, LIVE_STAGES):
+        column.metric(stage.capitalize(), counts.get(stage, 0))
+    columns[-1].metric("Emails seen", sum(counts.values()))
+    if stalled:
+        st.warning(
+            f"{len(stalled)} email(s) look stalled in `processing` (watcher stopped mid-email?): "
+            + ", ".join(row.get("subject") or "?" for row in stalled[:3])
+        )
+    average_classification = summary.get("avg_classification_confidence") or 0.0
+    average_draft = summary.get("avg_draft_confidence") or 0.0
+    st.caption(f"Average confidence — classification {average_classification:.2f} · draft {average_draft:.2f}")
+
+
+def live_row(row: dict, is_new: bool) -> None:
+    """One email in the feed: what it is, how far it got, and its confidence scores."""
+    status = row.get("status") or "legacy"
+    priority = row.get("priority")
+    chips = [
+        badge(priority, PRIORITY_COLOURS.get(priority or "", "#6b7280")) if priority else "",
+        badge(status, LIVE_STAGE_COLOURS.get(status, "#6b7280")),
+        badge("NEW", "#3f8f4f") if is_new else "",
+    ]
+    st.markdown(
+        f"{' '.join(chip for chip in chips if chip)} **{row.get('subject') or '(no subject)'}**  \n"
+        f"<span style='color:#8a8a8a'>{row.get('from_address') or ''} · "
+        f"updated {fmt_time(row.get('updated_at'))}</span>",
+        unsafe_allow_html=True,
+    )
+    scores = []
+    if row.get("classification_confidence") is not None:
+        scores.append(f"classification {row['classification_confidence']:.2f}")
+    if row.get("draft_confidence") is not None:
+        scores.append(f"draft {row['draft_confidence']:.2f}")
+    if row.get("final_confidence") is not None:
+        scores.append(f"final {row['final_confidence']:.2f}")
+    if scores:
+        st.caption("Confidence — " + " · ".join(scores))
+    if row.get("error"):
+        st.error(row["error"])
+    if row.get("draft_text"):
+        preview = " ".join(row["draft_text"].split())
+        st.caption("Draft — " + (preview[:240] + "…" if len(preview) > 240 else preview))
+    if row.get("review_status") or row.get("schedule_status"):
+        send_at = fmt_time(row.get("send_at")) if row.get("send_at") else "—"
+        st.caption(f"Review `{row.get('review_status') or '—'}` · "
+                   f"dispatch `{row.get('schedule_status') or '—'}` · send {send_at}")
+
+
+def live_panel(db_path: str, interval: int) -> None:
+    """The real-time view: everything a running watcher has written to the database so far."""
+    try:
+        repo = Repository(db_path)
+    except Exception as exc:  # noqa: BLE001 - a bad path must not crash the console
+        st.error(f"Cannot open `{db_path}`: {exc}")
+        return
+    try:
+        rows = repo.live_rows(limit=50)
+        counts = repo.status_counts()
+        summary = repo.summary()
+        stalled = repo.stalled_rows()
+    finally:
+        repo.close()
+
+    st.caption(f"Live · watching `{db_path}` · refreshing every {interval}s · "
+               f"{sum(counts.values())} email(s) seen")
+    if not rows:
+        st.info("Nothing yet. Start the watcher, then drop an email into the folder:\n\n"
+                "```\npython email-agent.py watch --input data/inbox\n```")
+        return
+
+    live_board(counts, summary, stalled)
+    st.divider()
+    last_seen = st.session_state.get("live_last_seen")
+    for row in rows:
+        with st.container(border=True):
+            live_row(row, is_new=bool(last_seen and row.get("updated_at") and row["updated_at"] > last_seen))
+    newest = rows[0].get("updated_at")
+    if newest:
+        st.session_state["live_last_seen"] = newest
+
+
+def live_section(db_path: str, interval: int) -> None:
+    """Run the live panel as an auto-refreshing fragment — the rest of the page stays put."""
+    def render() -> None:
+        live_panel(db_path, interval)
+
+    st.fragment(run_every=f"{interval}s")(render)()
 
 
 def schedule_view(rows: list[dict]) -> None:
@@ -362,13 +478,45 @@ def main() -> None:
     st.caption("Classifier → retrieval → drafter → reviewer → scheduler, with confidence scores "
                "at every step. Dispatch times are recorded; nothing is sent.")
 
+    if controls["live"]:
+        st.caption("Live mode — the console reads the database a watcher writes to; no batch is run "
+                   "from here. Untick **Live mode** in the sidebar to review a batch instead.")
+        live_section(controls["live_db"], controls["live_interval"])
+        graph_panel()
+        return
+
     if controls["run"] and controls["input_dir"]:
         with st.spinner(f"Processing {controls['label']} in {controls['tier']} mode…"):
             report = None
+            progress = st.progress(0.0, text="Starting…")
+            preview = st.empty()
+            streamed: list[dict] = []
+
+            def on_email(row: dict, index: int, total: int) -> None:
+                streamed.append(row)
+                progress.progress(min(index / max(total, 1), 1.0),
+                                  text=f"{index}/{total} · {row['subject'][:60]}")
+                preview.dataframe(
+                    [
+                        {
+                            "Priority": item["priority"],
+                            "Subject": item["subject"][:60],
+                            "Confidence": item["confidence"],
+                            "Review": item["review_status"],
+                            "Dispatch": item["schedule_status"],
+                        }
+                        for item in streamed[-8:]
+                    ],
+                    hide_index=True,
+                )
+
             try:
-                report = build_report(controls["input_dir"], controls["settings"], limit=controls["limit"])
+                report = build_report(controls["input_dir"], controls["settings"],
+                                      limit=controls["limit"], on_email=on_email)
             except RuntimeError as exc:  # e.g. LangGraph missing from the environment
                 st.error(str(exc))
+            progress.empty()
+            preview.empty()
         if report is not None:
             st.session_state["report"] = report
             st.session_state["report_label"] = controls["label"]

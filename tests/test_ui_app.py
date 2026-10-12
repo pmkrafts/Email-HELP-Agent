@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,6 +17,10 @@ try:
     HAS_STREAMLIT = True
 except Exception:  # noqa: BLE001 - streamlit is optional
     HAS_STREAMLIT = False
+
+from email_agent import watcher  # noqa: E402
+from email_agent.config import load_settings  # noqa: E402
+from email_agent.storage import Repository  # noqa: E402
 
 APP = ROOT / "ui" / "app.py"
 ISOLATED_KEYS = (
@@ -74,6 +80,46 @@ class UiSmokeTests(unittest.TestCase):
         self.assertFalse([radio for radio in app.sidebar.radio if radio.label == "Orchestration engine"])
         self.assertTrue(any("classify" in code.value and "persist" in code.value for code in app.code),
                         [code.value[:40] for code in app.code])
+
+    def test_live_mode_renders_with_an_empty_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = AppTest.from_file(str(APP), default_timeout=90)
+            app.run()
+            next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
+            app.run()
+            next(item for item in app.sidebar.text_input if item.label == "Watcher database").set_value(
+                str(Path(tmp) / "empty.db")
+            )
+            app.run()
+            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+            shown = " ".join(item.value for item in app.info)
+            self.assertIn("python email-agent.py watch --input data/inbox", shown)
+
+    def test_live_mode_shows_rows_from_the_watcher_database(self) -> None:
+        """Seed a database the way the watcher does, then point the console at it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "live.db"
+            inbox = Path(tmp) / "inbox"
+            inbox.mkdir()
+            shutil.copy(ROOT / "data" / "sample_emails" / "003_positive_feedback.eml", inbox / "a.eml")
+            repo = Repository(db_path)
+            try:
+                watcher.watch(load_settings(None), inbox, repo=repo, once=True)
+            finally:
+                repo.close()
+
+            app = AppTest.from_file(str(APP), default_timeout=90)
+            app.run()
+            next(box for box in app.sidebar.checkbox if "Live mode" in box.label).set_value(True)
+            app.run()
+            next(item for item in app.sidebar.text_input if item.label == "Watcher database").set_value(str(db_path))
+            app.run()
+
+            self.assertFalse(list(app.exception), [str(e.value) for e in app.exception])
+            body = " ".join(item.value for item in app.markdown) + " ".join(item.value for item in app.caption)
+            self.assertIn("Thank you - warranty claim sorted in 10 min", body)
+            self.assertIn("scheduled", body)
+            self.assertIn("classification 0.", body)   # the confidence score is on screen
 
     def test_missing_langgraph_shows_the_install_hint(self) -> None:
         """Without langgraph the run must surface the install hint, not a traceback."""

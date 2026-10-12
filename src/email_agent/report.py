@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Callable
 
 from .analytics import batch_summary
 from .config import ENGINE_NAME, Settings
@@ -108,8 +109,13 @@ def build_report(
     settings: Settings,
     now: datetime | None = None,
     limit: int | None = None,
+    on_email: Callable[[dict, int, int], Any] | None = None,
 ) -> dict:
-    """Run the pipeline over `input_dir` and return rows + summary + mode info."""
+    """Run the pipeline over `input_dir` and return rows + summary + mode info.
+
+    `on_email(row, index, total)` fires as each email finishes, so a caller (the UI) can stream
+    progress instead of waiting for the whole batch.
+    """
     now = now or datetime.now(timezone.utc)
     parsed, failures = parse_dir(input_dir)
     if limit is not None:
@@ -121,7 +127,12 @@ def build_report(
             "needs LangGraph: pip install langgraph  (or: pip install -r requirements.txt)"
         ) from exc
     orchestrator = GraphOrchestrator(settings, None, None)
-    states = [orchestrator.process(email, now=now) for email in parsed]
+    states = []
+    for index, email in enumerate(parsed, 1):
+        state = orchestrator.process(email, now=now)
+        states.append(state)
+        if on_email is not None:
+            on_email(_row(state), index, len(parsed))
     rows = [_row(state) for state in states]
     rows.sort(key=lambda row: (PRIORITY_ORDER.get(row["priority"], 9), -(row["priority_score"] or 0.0)))
     return {

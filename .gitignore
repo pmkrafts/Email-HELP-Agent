@@ -12,3 +12,7 @@ venv/
 
 # Runtime state (SQLite database + JSONL logs)
 storage/
+
+# Live inbox: drop .eml/.txt files here (contents are runtime data)
+data/inbox/*
+!data/inbox/.gitkeep

@@ -37,6 +37,17 @@ class ReportTests(unittest.TestCase):
             else:
                 os.environ[key] = value
 
+    def test_on_email_streams_progress(self) -> None:
+        """The UI shows each email as it finishes (instead of a frozen spinner)."""
+        seen: list[tuple[str, int, int]] = []
+        report = build_report(
+            ROOT / "data" / "sample_emails", self.settings, now=NOW, limit=2,
+            on_email=lambda row, index, total: seen.append((row["subject"], index, total)),
+        )
+        self.assertEqual([(index, total) for _, index, total in seen], [(1, 2), (2, 2)])
+        self.assertTrue(all(subject for subject, _, _ in seen))
+        self.assertEqual(len(report["rows"]), 2)
+
     def test_rows_are_shaped_for_the_ui(self) -> None:
         report = build_report(ROOT / "data" / "sample_emails", self.settings, now=NOW, limit=3)
         self.assertEqual(len(report["rows"]), 3)

@@ -20,12 +20,11 @@ msgpack) — the richer dataclasses are reconstructed inside the nodes.
 """
 from __future__ import annotations
 
-import operator
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -65,7 +64,7 @@ class PipelineState(TypedDict, total=False):
     feedback: str
     status: str
     error: str | None
-    logs: Annotated[list[dict[str, Any]], operator.add]
+    logs: list[dict[str, Any]]  # accumulated by the nodes (each update carries the full trace)
 
 
 # --- dataclass <-> dict bridges (the nodes keep working with the real models) ------------------
@@ -120,6 +119,7 @@ def _dump(agent: AgentState) -> dict[str, Any]:
         payload = asdict(agent.schedule)
         payload["send_at"] = agent.schedule.send_at.isoformat() if agent.schedule.send_at else None
         out["schedule"] = payload
+    out["logs"] = [dict(entry) for entry in agent.logs]  # the trace travels with the state
     return out
 
 
@@ -217,26 +217,46 @@ class GraphOrchestrator:
         return "halt" if self._halted(state) else "persist"
 
     # -- nodes ---------------------------------------------------------------
-    def _guard(self, node_name: str, fn):
-        """Per-email error isolation: a failing node records the error and routes to END."""
+    def _guard(self, node_name: str, fn, stage: str | None = None):
+        """Per-email error isolation: a failing node records the error and routes to END.
+
+        `stage` additionally persists the finished node, so the live view can follow the email
+        while it is being processed (see `Repository.save_stage`).
+        """
 
         def wrapped(state: PipelineState) -> dict[str, Any]:
             started = time.perf_counter()
             try:
                 update = fn(state)
             except Exception as exc:  # noqa: BLE001 - isolation is the contract
-                return {
+                update = {
                     "status": "error",
                     "error": f"{type(exc).__name__}: {exc}",
-                    "logs": [{"agent": node_name, "event": "error", "error": str(exc)}],
+                    "logs": [*(state.get("logs") or []),
+                             {"agent": node_name, "event": "error", "error": str(exc)}],
                 }
+                self._save_stage(state, update, "error")
+                return update
             update.setdefault("logs", [])
             update["logs"] = [*update["logs"]]
             if update["logs"]:
-                update["logs"][0].setdefault("latency_ms", int((time.perf_counter() - started) * 1000))
+                # the entry this node just appended (the trace travels as a whole list)
+                update["logs"][-1].setdefault("latency_ms", int((time.perf_counter() - started) * 1000))
+            self._save_stage(state, update, stage)
             return update
 
         return wrapped
+
+    def _save_stage(self, state: PipelineState, update: dict[str, Any], stage: str | None) -> None:
+        """Persist one finished node — never fatal: a storage problem is logged, not raised."""
+        if self.repo is None or stage is None:
+            return
+        try:
+            self.repo.save_stage(_from_state({**state, **update}), stage)
+        except Exception as exc:  # noqa: BLE001
+            update.setdefault("logs", []).append(
+                {"agent": "storage", "event": "error", "error": f"{type(exc).__name__}: {exc}"}
+            )
 
     def _node_classify(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:
@@ -249,7 +269,7 @@ class GraphOrchestrator:
                       flags=agent.classification.flags, judge=agent.classification.judge_verdict)
             return _dump(agent)
 
-        return self._guard("classifier", run)(state)
+        return self._guard("classifier", run, stage="classify")(state)
 
     def _node_retrieve(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:
@@ -259,7 +279,7 @@ class GraphOrchestrator:
             agent.log("retrieval", "completed", chunks=[chunk.title for chunk in agent.context])
             return _dump(agent)
 
-        return self._guard("retrieval", run)(state)
+        return self._guard("retrieval", run, stage="retrieve")(state)
 
     def _node_draft(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:
@@ -270,7 +290,7 @@ class GraphOrchestrator:
                       language=agent.draft.language, version=agent.draft.version)
             return _dump(agent)
 
-        return self._guard("drafter", run)(state)
+        return self._guard("drafter", run, stage="draft")(state)
 
     def _node_review(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:
@@ -280,7 +300,7 @@ class GraphOrchestrator:
             agent.log("reviewer", "completed", status=agent.review.status, issues=agent.review.issues)
             return _dump(agent)
 
-        return self._guard("reviewer", run)(state)
+        return self._guard("reviewer", run, stage="review")(state)
 
     def _node_revise(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:
@@ -296,7 +316,7 @@ class GraphOrchestrator:
             update["feedback"] = feedback
             return update
 
-        return self._guard("drafter", run)(state)
+        return self._guard("drafter", run, stage="revise")(state)
 
     def _node_finalize_review(self, state: PipelineState) -> dict[str, Any]:
         """The terminal review rule: a draft still needing revision is escalated (or flagged)."""
@@ -315,7 +335,7 @@ class GraphOrchestrator:
                       attempts=int(state.get("attempts", 1)), issues=agent.review.issues)
             return _dump(agent)
 
-        return self._guard("reviewer", run)(state)
+        return self._guard("reviewer", run, stage="finalize")(state)
 
     def _node_schedule(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:
@@ -329,7 +349,7 @@ class GraphOrchestrator:
                       send_at=agent.schedule.send_at.isoformat() if agent.schedule.send_at else None)
             return _dump(agent)
 
-        return self._guard("scheduler", run)(state)
+        return self._guard("scheduler", run, stage="schedule")(state)
 
     def _node_persist(self, state: PipelineState) -> dict[str, Any]:
         def run(state: PipelineState) -> dict[str, Any]:

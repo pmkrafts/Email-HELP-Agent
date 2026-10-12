@@ -4,7 +4,21 @@ Agentic email pipeline: **parse → classify → retrieve → draft → review �
 One dependency (**LangGraph** — the pipeline is a state graph). No API key needed: the default mode is
 the offline rules engine. Nothing is ever sent — dispatch times are recorded only.
 
-## 1. Run it (two commands)
+## 1. Run it in the browser
+
+```bash
+pip install -r requirements.txt
+pip install streamlit
+streamlit run ui/app.py      # http://localhost:8501
+```
+
+The console is a view layer over the same LangGraph engine — its sidebar reports `engine: graph` and
+the compiled topology sits in an expander next to the metrics. Pick a batch and a tier, press
+**Run pipeline**, then explore: a sortable table with a per-email drill-down (classification, RAG
+context, draft, review + schedule, agent trace), a full-content view, a drafts-only view, a dispatch
+schedule grouped by bucket, and one-click JSON export.
+
+## 2. Or run it (two commands) (optional)
 
 ```bash
 pip install -r requirements.txt
@@ -41,20 +55,29 @@ tiers are used and you pay per call; without keys everything stays offline.
 `--input <dir>`, `--with-llm`, `--with-judge`, `--now <iso>`, `--skip-tests --skip-eval`
 (`python run.py --help`).
 
-## 2. Or run it in the browser (optional)
+## 3. Live mode (watch an inbox in real time)
+
+The console can follow a folder instead of running a batch: one process watches for new emails, and
+the UI shows each one arrive, advance through the stages and end up scheduled — no reload needed.
 
 ```bash
-pip install streamlit
-streamlit run ui/app.py      # http://localhost:8501
+pip install -r requirements.txt streamlit                             # once
+python email-agent.py --db storage/live.db watch --input data/inbox   # terminal 1
+streamlit run ui/app.py                                               # terminal 2
 ```
 
-The console is a view layer over the same LangGraph engine — its sidebar reports `engine: graph` and
-the compiled topology sits in an expander next to the metrics. Pick a batch and a tier, press
-**Run pipeline**, then explore: a sortable table with a per-email drill-down (classification, RAG
-context, draft, review + schedule, agent trace), a full-content view, a drafts-only view, a dispatch
-schedule grouped by bucket, and one-click JSON export.
+In the sidebar tick **Live mode (auto-refresh)**, set the refresh interval and the database the
+watcher writes to (`storage/live.db` above), then drop a `.eml`/`.txt` file into `data/inbox`. It
+appears as `Processing`, moves to `Scheduled`, and shows its classification, draft and final
+confidence scores plus a draft preview; new rows are badged `NEW`.
 
-## 3. How the engine works (LangGraph)
+The watcher parses the folder oldest-first, skips what is already stored (idempotent by `message_id`),
+claims each email so a second watcher cannot double-process it, and writes every stage to SQLite as it
+completes. A file that cannot be parsed is recorded once as an `error` row and the sweep continues.
+`--once` does a single sweep (cron-friendly), `--interval` sets the poll cadence (default 2 s) and
+`--limit` caps a sweep.
+
+## 4. How the engine works (LangGraph)
 
 ```
 START → classify ─(spam)→ schedule
@@ -70,7 +93,7 @@ a batch. `python email-agent.py graph` prints this topology (it is checked in at
 If LangGraph is missing, the CLI prints `needs LangGraph: pip install langgraph` and the runner says
 `LangGraph is required - install it` — both exit with code 2 instead of failing halfway.
 
-## 4. Model tiers (optional)
+## 5. Model tiers (optional)
 
 ```
 Tier 0  rules engine        always on, zero tokens      ← all accuracy numbers were produced here
@@ -83,7 +106,7 @@ Copy `.env.example` to `.env` and fill in the keys (`EMAIL_AGENT_LLM=openai`, `E
 confirms both tiers before a big run. Judge verdicts are stored per classification, and a judge outage
 degrades to the tier below instead of failing the batch.
 
-## 5. Other commands (rarely needed)
+## 6. Other commands (rarely needed)
 
 ```bash
 python email-agent.py run --input data/sample_emails   # CLI instead of the runner
@@ -95,7 +118,7 @@ python -m unittest discover -s tests                   # the 71 tests
 `pip install -e .` exposes them as `email-agent …`. Results land in `storage/` (SQLite plus JSONL logs
 under `storage/logs/`); `run.py` rebuilds `storage/run-demo.db` on every run.
 
-## 6. When something goes wrong
+## 7. When something goes wrong
 
 | Symptom | Fix |
 |---|---|

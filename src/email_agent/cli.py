@@ -200,6 +200,48 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Poll a folder and process emails as they arrive — the live view reads the same database."""
+    settings = load_settings(args)
+    try:
+        engine = _engine()
+    except RuntimeError as exc:
+        print(f"error: {exc}")
+        return 2
+    from .analytics import RunLogger
+    from .storage import Repository
+    from .watcher import watch
+
+    repo = Repository(settings.db_path)
+    logger = RunLogger(settings.root / "storage" / "logs")
+    orchestrator = engine(settings, repo, logger)
+    now = _parse_now(args.now)
+
+    def report(state) -> None:
+        classification = state.classification
+        schedule = state.schedule
+        send_at = schedule.send_at.strftime("%a %H:%M") if schedule and schedule.send_at else "-"
+        stamp = datetime.now().strftime("%H:%M:%S")
+        print(
+            f"[{stamp}] {_fmt(state.email.subject or '(no subject)', 44)} "
+            f"{_fmt(classification.priority if classification else '?', 9)} "
+            f"conf={classification.confidence if classification else 0:.2f} "
+            f"-> {send_at} ({schedule.status if schedule else state.status})"
+        )
+
+    print(f"Watching {args.input} every {args.interval:g}s — db {settings.db_path} — Ctrl-C to stop")
+    try:
+        states = watch(
+            settings, args.input, interval=args.interval, now=now, once=args.once,
+            limit=args.limit, force=args.force, repo=repo, logger=logger,
+            orchestrator=orchestrator, on_email=report,
+        )
+    finally:
+        repo.close()
+    print(f"Processed {len(states)} email(s).")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="email_agent", description="Agentic email automation (POC)")
     parser.add_argument("--db", help="SQLite path (default: storage/agent.db)")
@@ -227,6 +269,15 @@ def build_parser() -> argparse.ArgumentParser:
     graph_p = sub.add_parser("graph", help="print the LangGraph topology as Mermaid source")
     graph_p.add_argument("--out", help="write the diagram to this path instead of stdout")
     graph_p.set_defaults(func=cmd_graph)
+
+    watch_p = sub.add_parser("watch", help="poll a folder and process emails as they arrive (live view)")
+    watch_p.add_argument("--input", required=True, help="folder to poll for new .eml/.txt files")
+    watch_p.add_argument("--interval", type=float, default=2.0, help="seconds between sweeps (default: 2)")
+    watch_p.add_argument("--once", action="store_true", help="single sweep, then exit")
+    watch_p.add_argument("--limit", type=int, help="max emails to process per sweep")
+    watch_p.add_argument("--force", action="store_true", help="re-process files that are already stored")
+    watch_p.add_argument("--now", help="ISO timestamp to use as 'now' (deterministic runs)")
+    watch_p.set_defaults(func=cmd_watch)
 
     eval_p = sub.add_parser("eval", help="score against labeled batches")
     eval_p.add_argument("--batches", nargs="*", help=f"batch dirs (default: {' '.join(BATCHES)})")
